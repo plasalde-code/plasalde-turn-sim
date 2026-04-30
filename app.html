@@ -124,6 +124,10 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#111827;color:#e5
 <div id="hdr">
   <span id="hdr-title">▶ P.Lasalde Turn Simulator</span>
   <div id="hdr-actions">
+    <div id="loc-search-wrap" style="display:none;align-items:center;gap:4px">
+      <input id="loc-input" placeholder="Search address or lat,lng…" style="background:#1f2937;border:1px solid #374151;border-radius:6px;color:#f1f5f9;font-size:12px;padding:5px 9px;width:220px;outline:none" onkeydown="if(event.key==='Enter')searchLocation()">
+      <button onclick="searchLocation()" style="background:#374151;border:none;border-radius:6px;color:#f1f5f9;font-size:11px;padding:5px 9px;cursor:pointer">Go</button>
+    </div>
     <button class="hbtn" id="btn-aerial" onclick="toggleAerial()" title="Toggle satellite imagery background">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 010 20M12 2a15.3 15.3 0 000 20"/></svg>
       Aerial
@@ -1056,12 +1060,14 @@ function render(){
   // ── Sharp corner check ────────────────────────────────────────
   const cornerCheck=checkSharpCorners();
   if(!cornerCheck.ok){
+    // Briefly lock draw mode to prevent spam-clicking
+    if(!S._drawLocked){S._drawLocked=true;setTimeout(()=>{S._drawLocked=false;},1200);}
     document.getElementById('min-warn').style.display='none';
     // Red banner
     const cLbl=new Konva.Label({x:8,y:8,listening:false,opacity:.97});
     cLbl.add(new Konva.Tag({fill:'rgba(127,29,29,.93)',cornerRadius:5,stroke:'#ef4444',strokeWidth:1}));
     cLbl.add(new Konva.Text({
-      text:`⛔  Sharp corner at node ${cornerCheck.badIndex+1} — ${S.vehicle.code} cannot make this turn\n    Set a curve radius on this node  ·  Deflection: ${cornerCheck.deflectionDeg.toFixed(0)}°`,
+      text:`⚠  Turn too sharp at node ${cornerCheck.badIndex+1} (${cornerCheck.deflectionDeg.toFixed(0)}° deflection)\n    Fix: click the node in Select mode → set a Curve Radius, or spread your nodes further apart.`,
       fontSize:12,fontStyle:'bold',fill:'#fca5a5',padding:7,lineHeight:1.6
     }));
     mainLayer.add(cLbl);
@@ -1274,6 +1280,32 @@ function render(){
       }));
       mainLayer.add(lbl);
     });
+  }
+
+  // ── First-node "start here" pulse ring ─────────────────────────
+  if(vs.length===1&&S.mode==='draw'){
+    mainLayer.add(new Konva.Circle({x:vs[0].x,y:vs[0].y,radius:18,stroke:'#60a5fa',strokeWidth:1.5,dash:[4,4],fill:'transparent',listening:false,opacity:.7}));
+    mainLayer.add(new Konva.Text({x:vs[0].x+14,y:vs[0].y-20,text:'Click to continue path →',fontSize:10,fill:'#60a5fa',listening:false,opacity:.9}));
+  }
+
+  // ── Sharp corner limit arcs (allowable cone per node) ───────────
+  if(vs.length>=3&&S.mode==='select'){
+    const isArtic=S.vehicle.L2>0;
+    const threshold=isArtic?45:75;
+    for(let i=1;i<vs.length-1;i++){
+      if(vs[i].radius>0) continue; // has a curve — no need to show limit
+      const a=vs[i-1],b=vs[i],c=vs[i+1];
+      const d1=vnorm(vsub(b,a));
+      const inAngle=Math.atan2(d1.y,d1.x);
+      const limitRad=threshold*Math.PI/180;
+      const R=30; // display radius in px
+      // Draw two limit rays from the node
+      const ray1={x:b.x+R*Math.cos(inAngle+limitRad),y:b.y+R*Math.sin(inAngle+limitRad)};
+      const ray2={x:b.x+R*Math.cos(inAngle-limitRad),y:b.y+R*Math.sin(inAngle-limitRad)};
+      mainLayer.add(new Konva.Line({points:[b.x,b.y,ray1.x,ray1.y],stroke:'#fbbf24',strokeWidth:1,dash:[3,3],listening:false,opacity:.5}));
+      mainLayer.add(new Konva.Line({points:[b.x,b.y,ray2.x,ray2.y],stroke:'#fbbf24',strokeWidth:1,dash:[3,3],listening:false,opacity:.5}));
+      mainLayer.add(new Konva.Arc({x:b.x,y:b.y,innerRadius:0,outerRadius:R,angle:threshold*2,rotation:(inAngle-limitRad)*180/Math.PI,fill:'rgba(251,191,36,.07)',stroke:'#fbbf24',strokeWidth:.8,listening:false,opacity:.6}));
+    }
   }
 
   // ── Vertex circles ──────────────────────────────────────────────
@@ -1552,6 +1584,7 @@ function toggleAerial(){
   S.aerial=!S.aerial;
   const btn=document.getElementById('btn-aerial');
   const mapEl=document.getElementById('map-container');
+  document.getElementById('loc-search-wrap').style.display=S.aerial?'flex':'none';
   if(S.aerial){
     btn.style.background='#1e3a5f'; btn.style.color='#60a5fa'; btn.style.borderColor='#1d4ed8';
     mapEl.style.display='block';
@@ -1606,6 +1639,7 @@ stage.on('click tap',e=>{
   const world=toWorld(stage.getPointerPosition());
   if(S.mode==='draw'){
     if(_ap.panned){_ap.panned=false;return;} // drag-pan ended, not a click
+    if(S._drawLocked) return; // spam-click lockout after constraint hit
     if(e.target!==stage&&e.target.getLayer()===mainLayer) return;
     addVertex(world.x,world.y);
   } else if(S.mode==='calibrate'&&S.calActive){
@@ -2317,6 +2351,39 @@ function updateVehicleInfo(){
 // ══════════════════════════════════════════════════════════════════
 buildVehicleList();updateVehicleInfo();setMode('draw');updateSpeedPanel();
 setStatus(MODE_HELP.draw);
+
+// ── Keyboard shortcuts ─────────────────────────────────────────
+document.addEventListener('keydown',e=>{
+  if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA') return;
+  switch(e.key){
+    case 'Escape':
+      if(S.mode==='measure'){S.measurePts=[];S.measureLive=null;drawMeasureUI();}
+      S.selId=null; updatePropPanel(); setMode('draw'); break;
+    case 'd': case 'D': setMode('draw'); break;
+    case 's': case 'S': if(S.vertices.length>=2) setMode('select'); break;
+    case 'p': case 'P': setMode('pan'); break;
+    case 'm': case 'M': setMode('measure'); break;
+    case 'z': case 'Z': if(e.ctrlKey||e.metaKey){e.preventDefault();undo();} break;
+    case 'Delete': case 'Backspace':
+      if(S.selId){S.vertices=S.vertices.filter(v=>v.id!==S.selId);S.selId=null;updatePropPanel();render();}
+      break;
+  }
+});
+
+// ── Location search (Nominatim) ────────────────────────────────
+async function searchLocation(){
+  const q=document.getElementById('loc-input').value.trim();
+  if(!q||!S.leaflet) return;
+  // Try lat,lng format first
+  const ll=q.match(/^(-?\d+\.?\d*)[,\s]+(-?\d+\.?\d*)$/);
+  if(ll){S.leaflet.setView([parseFloat(ll[1]),parseFloat(ll[2])],17);return;}
+  try{
+    const res=await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=1`,{headers:{'Accept-Language':'en'}});
+    const data=await res.json();
+    if(data.length){S.leaflet.setView([parseFloat(data[0].lat),parseFloat(data[0].lon)],17);}
+    else{alert('Location not found. Try a different search.');}
+  }catch{alert('Search failed. Check your connection.');}
+}
 
 // Welcome modal
 function closeWelcome(){

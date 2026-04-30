@@ -124,6 +124,7 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#111827;color:#e5
 
 <div id="hdr">
   <span id="hdr-title">▶ P.Lasalde Turn Simulator</span>
+  <span style="font-size:10px;color:#374151;margin-left:6px;white-space:nowrap;user-select:none" title="© 2025 Pedro Lasalde. All rights reserved. Unauthorized copying, reproduction, or distribution of this software is strictly prohibited.">© 2025 Pedro Lasalde</span>
   <div id="hdr-actions">
     <div id="loc-search-wrap" style="display:none;align-items:center;gap:4px">
       <input id="loc-input" placeholder="Search address or lat,lng…" style="background:#1f2937;border:1px solid #374151;border-radius:6px;color:#f1f5f9;font-size:12px;padding:5px 9px;width:220px;outline:none" onkeydown="if(event.key==='Enter')searchLocation()">
@@ -133,6 +134,11 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#111827;color:#e5
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 010 20M12 2a15.3 15.3 0 000 20"/></svg>
       Aerial
     </button>
+    <select id="tile-sel" onchange="switchTileLayer(this.value)" title="Satellite imagery provider" style="display:none;background:#1f2937;border:1px solid #374151;border-radius:6px;color:#9ca3af;font-size:11px;padding:4px 6px;cursor:pointer">
+      <option value="esri">Esri World</option>
+      <option value="esri-clarity">Esri Clarity</option>
+      <option value="usgs">USGS (US only)</option>
+    </select>
     <button class="hbtn" onclick="loadPDF()">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
       Load PDF
@@ -206,6 +212,9 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#111827;color:#e5
     <div class="s-sec">
       <h3>Design Vehicle</h3>
       <div id="vlist"></div>
+      <button onclick="openCustomVehicleModal()" style="width:100%;margin-top:6px;padding:6px 8px;border-radius:6px;border:1px dashed #374151;background:transparent;color:#6b7280;cursor:pointer;font-size:11px;font-weight:600;transition:all .15s" onmouseover="this.style.borderColor='#dc2626';this.style.color='#f87171'" onmouseout="this.style.borderColor='#374151';this.style.color='#6b7280'">
+        ➕ Add Custom Vehicle
+      </button>
       <div id="vinfo"></div>
       <div class="legend">
         <div class="lrow"><div class="lbox" id="lg-swept" style="background:#ef444430;border:1px solid #ef4444"></div><span>Swept area</span></div>
@@ -357,8 +366,9 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#111827;color:#e5
   </div>
 </div>
 
-<div class="overlay hide" id="scale-modal">
-  <div class="mbox">
+<!-- Scale modal: floating panel — does NOT block canvas so user can click two points -->
+<div id="scale-modal" style="display:none;position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:250;pointer-events:none">
+  <div class="mbox" style="pointer-events:auto;box-shadow:0 8px 32px rgba(0,0,0,.6)">
     <h2>Set Drawing Scale</h2>
     <p>Click two points on the drawing that have a known real-world distance between them.</p>
     <div class="mstep" id="mstep">Step 1 of 2 — click first point on canvas</div>
@@ -400,6 +410,67 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#111827;color:#e5
       I Accept — Continue to App
     </button>
     <p style="font-size:11px;color:#4b5563;margin-top:12px;text-align:center">By continuing you confirm you are a qualified professional responsible for verifying all results.</p>
+  </div>
+</div>
+
+<!-- Custom Vehicle Builder Modal -->
+<div id="custom-veh-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:300;align-items:center;justify-content:center;backdrop-filter:blur(4px)">
+  <div style="background:#1f2937;border:1px solid #374151;border-radius:16px;padding:28px;width:100%;max-width:500px;margin:16px;max-height:90vh;overflow-y:auto">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+      <h2 style="font-size:17px;font-weight:800;color:#f1f5f9">Custom Vehicle</h2>
+      <button onclick="closeCustomVehicleModal()" style="background:transparent;border:none;color:#6b7280;cursor:pointer;font-size:20px;line-height:1">✕</button>
+    </div>
+    <!-- Template selector -->
+    <div style="margin-bottom:14px">
+      <label style="display:block;font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Start from template</label>
+      <select id="cv-template" onchange="applyVehicleTemplate(this.value)" style="width:100%;padding:7px 10px;background:#111827;border:1px solid #374151;border-radius:7px;color:#e5e7eb;font-size:12px">
+        <option value="">— Blank / manual entry —</option>
+      </select>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">
+      <div style="grid-column:span 2">
+        <label style="display:block;font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Vehicle Name *</label>
+        <input type="text" id="cv-name" placeholder="e.g. My Crane Truck" style="width:100%;padding:7px 10px;background:#111827;border:1px solid #374151;border-radius:7px;color:#e5e7eb;font-size:12px;outline:none">
+      </div>
+      <div>
+        <label style="display:block;font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Category</label>
+        <input type="text" id="cv-cat" placeholder="e.g. Special" style="width:100%;padding:7px 10px;background:#111827;border:1px solid #374151;border-radius:7px;color:#e5e7eb;font-size:12px;outline:none">
+      </div>
+      <div>
+        <label style="display:block;font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Short Code</label>
+        <input type="text" id="cv-code" placeholder="e.g. CRN" maxlength="8" style="width:100%;padding:7px 10px;background:#111827;border:1px solid #374151;border-radius:7px;color:#e5e7eb;font-size:12px;outline:none">
+      </div>
+    </div>
+    <!-- Dimensions -->
+    <div style="background:#111827;border-radius:8px;padding:14px;margin-bottom:14px">
+      <div style="font-size:10px;color:#4b5563;font-weight:700;text-transform:uppercase;letter-spacing:.8px;margin-bottom:10px">Dimensions (feet)</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+        <div><label style="font-size:10px;color:#6b7280">Total Length (L)</label><input type="number" id="cv-L" min="5" max="200" step="0.5" style="width:100%;padding:5px 7px;background:#1f2937;border:1px solid #374151;border-radius:5px;color:#e5e7eb;font-size:12px;outline:none;margin-top:2px"></div>
+        <div><label style="font-size:10px;color:#6b7280">Width (W)</label><input type="number" id="cv-W" min="4" max="16" step="0.5" style="width:100%;padding:5px 7px;background:#1f2937;border:1px solid #374151;border-radius:5px;color:#e5e7eb;font-size:12px;outline:none;margin-top:2px"></div>
+        <div><label style="font-size:10px;color:#6b7280">Min Turn R</label><input type="number" id="cv-Rmin" min="10" max="200" step="1" style="width:100%;padding:5px 7px;background:#1f2937;border:1px solid #374151;border-radius:5px;color:#e5e7eb;font-size:12px;outline:none;margin-top:2px"></div>
+        <div><label style="font-size:10px;color:#6b7280">Front Overhang</label><input type="number" id="cv-Fo" min="0" max="30" step="0.5" style="width:100%;padding:5px 7px;background:#1f2937;border:1px solid #374151;border-radius:5px;color:#e5e7eb;font-size:12px;outline:none;margin-top:2px"></div>
+        <div><label style="font-size:10px;color:#6b7280">Rear Overhang</label><input type="number" id="cv-Ro" min="0" max="30" step="0.5" style="width:100%;padding:5px 7px;background:#1f2937;border:1px solid #374151;border-radius:5px;color:#e5e7eb;font-size:12px;outline:none;margin-top:2px"></div>
+        <div><label style="font-size:10px;color:#6b7280">Track Width</label><input type="number" id="cv-TW" min="3" max="14" step="0.5" style="width:100%;padding:5px 7px;background:#1f2937;border:1px solid #374151;border-radius:5px;color:#e5e7eb;font-size:12px;outline:none;margin-top:2px"></div>
+        <div><label style="font-size:10px;color:#6b7280">WB: FA→pivot (L1)</label><input type="number" id="cv-L1" min="5" max="100" step="0.5" style="width:100%;padding:5px 7px;background:#1f2937;border:1px solid #374151;border-radius:5px;color:#e5e7eb;font-size:12px;outline:none;margin-top:2px"></div>
+        <div><label style="font-size:10px;color:#6b7280">pivot→RA (L2, 0=rigid)</label><input type="number" id="cv-L2" min="0" max="100" step="0.5" value="0" style="width:100%;padding:5px 7px;background:#1f2937;border:1px solid #374151;border-radius:5px;color:#e5e7eb;font-size:12px;outline:none;margin-top:2px"></div>
+        <div><label style="font-size:10px;color:#6b7280">Body ahead pivot (Fwd)</label><input type="number" id="cv-Fwd" min="0" max="20" step="0.5" value="0" style="width:100%;padding:5px 7px;background:#1f2937;border:1px solid #374151;border-radius:5px;color:#e5e7eb;font-size:12px;outline:none;margin-top:2px"></div>
+      </div>
+    </div>
+    <!-- Color -->
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px">
+      <div>
+        <label style="display:block;font-size:11px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Color</label>
+        <input type="color" id="cv-color" value="#f59e0b" style="width:48px;height:32px;border:1px solid #374151;border-radius:6px;background:transparent;cursor:pointer;padding:2px">
+      </div>
+      <div style="flex:1;font-size:11px;color:#4b5563;line-height:1.6">
+        L2 = 0 for rigid vehicles (car, truck, bus).<br>L2 &gt; 0 for articulated/towing (semitrailers, pickup+trailer).<br>Dimensions in <strong style="color:#9ca3af">US feet</strong>.
+      </div>
+    </div>
+    <div id="cv-err" style="display:none;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:6px;padding:8px 12px;font-size:12px;color:#fca5a5;margin-bottom:12px"></div>
+    <div style="display:flex;gap:8px">
+      <button onclick="closeCustomVehicleModal()" style="flex:1;padding:10px;border-radius:7px;border:1px solid #374151;background:transparent;color:#6b7280;cursor:pointer;font-size:13px">Cancel</button>
+      <button onclick="saveCustomVehicle()" style="flex:2;padding:10px;border-radius:7px;border:none;background:#dc2626;color:#fff;cursor:pointer;font-size:13px;font-weight:700">Save Vehicle</button>
+    </div>
   </div>
 </div>
 
@@ -530,6 +601,24 @@ const VEHICLES = [
   { id:'FIRE', cat:'Emergency',    name:'Fire Engine',           code:'FIRE',
     color:'#f43f5e', W:8.5,  L:37.0,  Fo:5.0,  Ro:6.0,  TW:7.5,  Rmin:38.0,
     L1:18.0,  L2:0,    Fwd:0 },
+
+  // ── Extended / Heavy Vehicles ─────────────────────────────────────────
+  { id:'LT80', cat:'Semitrailer',  name:'Long Semitrailer (80ft)',code:'LT-80',
+    color:'#dc2626', W:8.5,  L:100.0, Fo:4.0,  Ro:3.0,  TW:8.0,  Rmin:55.0,
+    L1:22.0,  L2:65.0, Fwd:3.0 },
+
+  { id:'LOWB', cat:'Semitrailer',  name:'Low Boy (53ft Trailer)', code:'L-BOY',
+    color:'#0891b2', W:10.0, L:73.0,  Fo:4.0,  Ro:3.0,  TW:9.0,  Rmin:50.0,
+    L1:16.0,  L2:45.0, Fwd:2.0 },
+
+  // ── Utility / Work ────────────────────────────────────────────────────
+  { id:'BUCK', cat:'Utility',      name:'Utility Bucket Truck',  code:'UTL',
+    color:'#ca8a04', W:8.0,  L:32.0,  Fo:4.0,  Ro:7.0,  TW:7.0,  Rmin:40.0,
+    L1:18.0,  L2:0,    Fwd:0 },
+
+  { id:'PKT',  cat:'Passenger',    name:'Pickup with Trailer',   code:'P+T',
+    color:'#16a34a', W:7.5,  L:36.0,  Fo:4.0,  Ro:3.0,  TW:7.0,  Rmin:28.0,
+    L1:14.0,  L2:14.0, Fwd:1.0 },
 ];
 
 // ══════════════════════════════════════════════════════════════════
@@ -1645,8 +1734,9 @@ function reprojectLockedPdf(){
   const ppm=aerialPpm(S.leaflet);
   const pt=S.leaflet.latLngToContainerPoint(S.pdfGeo.anchorLatLng);
   kImg.x(pt.x); kImg.y(pt.y);
-  kImg.scaleX(S.pdfGeo.widthFt*ppm/kImg.width());   // widthFt * px/ft = px
+  kImg.scaleX(S.pdfGeo.widthFt*ppm/kImg.width());
   kImg.scaleY(S.pdfGeo.heightFt*ppm/kImg.height());
+  kImg.rotation(S.pdfGeo.rotation);  // restore rotation — was missing, reset on every pan/zoom
   pdfLayer.batchDraw();
 }
 function toggleAerial(){
@@ -1660,7 +1750,7 @@ function toggleAerial(){
     // Init Leaflet once
     if(!S.leaflet){
       S.leaflet=L.map('map-container',{zoomControl:true,scrollWheelZoom:true}).setView([25.775,-80.19],17);
-      L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+      S._tileLayer=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
         {attribution:'Imagery &copy; Esri',maxZoom:21,maxNativeZoom:19,crossOrigin:true}).addTo(S.leaflet);
       // When map moves: reproject vertices and re-render.
       // 'move' fires on EVERY pan step (real-time) so vertices follow tiles during drag.
@@ -1684,10 +1774,13 @@ function toggleAerial(){
     // Hide PDF bg
     bgLayer.destroyChildren(); bgLayer.batchDraw();
     render();
+    document.getElementById('tile-sel').style.display='inline-block';
     setStatus('Aerial mode — pan/zoom the map, then Draw your path');
   } else {
     btn.style.background=''; btn.style.color=''; btn.style.borderColor='';
     mapEl.style.display='none';
+    document.getElementById('tile-sel').style.display='none';
+    mainLayer.listening(true); swLayer.listening(true); kmlLayer.listening(true); uiLayer.listening(true);
     pdfLayer.destroyChildren(); pdfLayer.batchDraw();
     S.pdfOverlay=null; S.pdfXformer=null; S.pdfGeo=null;
     document.getElementById('overlay-panel').style.display='none';
@@ -1701,12 +1794,26 @@ function toggleAerial(){
   }
 }
 
+const TILE_LAYERS={
+  'esri':{url:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',attr:'Imagery &copy; Esri',maxZoom:21,maxNative:19},
+  'esri-clarity':{url:'https://clarity.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',attr:'Imagery &copy; Esri Clarity',maxZoom:21,maxNative:19},
+  'usgs':{url:'https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}',attr:'Imagery &copy; USGS',maxZoom:16,maxNative:16},
+};
+function switchTileLayer(key){
+  if(!S.leaflet) return;
+  const cfg=TILE_LAYERS[key]||TILE_LAYERS['esri'];
+  if(S._tileLayer) S.leaflet.removeLayer(S._tileLayer);
+  S._tileLayer=L.tileLayer(cfg.url,{attribution:cfg.attr,maxZoom:cfg.maxZoom,maxNativeZoom:cfg.maxNative,crossOrigin:true}).addTo(S.leaflet);
+}
+
 // ══════════════════════════════════════════════════════════════════
 // 12b. COORDINATE HELPERS & STAGE EVENTS
 // ══════════════════════════════════════════════════════════════════
 const toWorld=sp=>({x:(sp.x-stage.x())/stage.scaleX(),y:(sp.y-stage.y())/stage.scaleY()});
 
 stage.on('click tap',e=>{
+  // PDF in adjustment mode — let Transformer anchors handle all events unobstructed
+  if(S.pdfOverlay && !S.pdfGeo) return;
   const world=toWorld(stage.getPointerPosition());
   if(S.mode==='draw'){
     if(_ap.panned){_ap.panned=false;return;} // drag-pan ended, not a click
@@ -1944,7 +2051,7 @@ function updateScaleBar(){
 // ══════════════════════════════════════════════════════════════════
 function startCalibrate(){
   S.calActive=true;S.calP1=null;S.calP2=null;
-  const m=document.getElementById('scale-modal');m.classList.remove('hide');
+  const m=document.getElementById('scale-modal');m.style.display='block';
   document.getElementById('mstep').textContent='Step 1 of 2 — click first point on canvas';
   document.getElementById('minput-row').style.display='none';
   document.getElementById('mbtn-ok').style.display='none';
@@ -1954,7 +2061,7 @@ function startCalibrate(){
 }
 function cancelScale(){
   S.calActive=false;S.calP1=null;S.calP2=null;
-  document.getElementById('scale-modal').classList.add('hide');
+  document.getElementById('scale-modal').style.display='none';
   uiLayer.destroyChildren();uiLayer.batchDraw();
   setMode('select');
 }
@@ -1962,7 +2069,7 @@ function confirmScale(){
   const d=parseFloat(document.getElementById('mdist').value);
   if(!d||d<=0){alert('Enter a valid positive distance.');return;}
   S.ppm=vdist(S.calP1,S.calP2)/d; // d is feet, ppm = px/ft
-  document.getElementById('scale-modal').classList.add('hide');
+  document.getElementById('scale-modal').style.display='none';
   S.calActive=false;
   uiLayer.destroyChildren();uiLayer.batchDraw();
   updateScaleDisplay();updatePropPanel();setMode('select');render();
@@ -2110,10 +2217,13 @@ function setBackground(img){
                       'middle-left','middle-right',
                       'bottom-left','bottom-center','bottom-right'],
       rotateEnabled:true,
-      borderStroke:'#f59e0b', borderStrokeWidth:1.5,
-      anchorFill:'#f59e0b', anchorStroke:'#92400e', anchorSize:11,
-      anchorCornerRadius:3,
+      borderStroke:'#f59e0b', borderStrokeWidth:2,
+      anchorFill:'#f59e0b', anchorStroke:'#78350f', anchorStrokeWidth:2,
+      anchorSize:18,       // larger handles = much easier to grab
+      anchorCornerRadius:4,
     });
+    // Suppress all other layers from stealing hit events while PDF is being adjusted
+    mainLayer.listening(false); swLayer.listening(false); kmlLayer.listening(false); uiLayer.listening(false);
     pdfLayer.add(tr);
     S.pdfOverlay=kImg; S.pdfXformer=tr;
     // Float pdfLayer to TOP so transformer handles receive clicks
@@ -2142,6 +2252,8 @@ function setOverlayOpacity(v){
   pdfLayer.batchDraw();
 }
 function lockOverlay(){
+  // Restore normal layer listening — PDF is locked, drawing layers take over again
+  mainLayer.listening(true); swLayer.listening(true); kmlLayer.listening(true); uiLayer.listening(true);
   if(S.pdfXformer) S.pdfXformer.hide();
   if(S.pdfOverlay) S.pdfOverlay.draggable(false);
   // Save geographic anchor so PDF stays glued to map on pan/zoom
@@ -2167,6 +2279,8 @@ function lockOverlay(){
   setStatus('PDF locked — switch to Draw and trace your path');
 }
 function removeOverlay(){
+  // Restore all layer listening before clearing
+  mainLayer.listening(true); swLayer.listening(true); kmlLayer.listening(true); uiLayer.listening(true);
   pdfLayer.destroyChildren(); pdfLayer.batchDraw();
   S.pdfOverlay=null; S.pdfXformer=null; S.pdfGeo=null;
   document.getElementById('overlay-panel').style.display='none';
@@ -2180,11 +2294,13 @@ function unlockOverlay(){
   pdfLayer.listening(true);
   pdfLayer.moveToTop();
   pdfLayer.batchDraw();
+  // Suppress other layers so pdfLayer wins all hit tests
+  mainLayer.listening(false); swLayer.listening(false); kmlLayer.listening(false); uiLayer.listening(false);
   // Always allow clicks through to pdfLayer while adjusting
   document.getElementById('stage-container').style.pointerEvents='auto';
   document.getElementById('btn-lock-overlay').style.display='block';
   document.getElementById('btn-unlock-overlay').style.display='none';
-  setStatus('PDF unlocked — drag, scale corners, rotate handle to re-align');
+  setStatus('PDF unlocked — drag body to move · drag orange handles to scale · rotate handle at top');
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -2380,26 +2496,19 @@ function exportKML(){
   <name>Vehicle Turn — ${S.vehicle.name}</name>
   <description>Exported from Vehicle Turn Analysis. Vehicle: ${S.vehicle.name} (${S.vehicle.code})</description>\n`;
 
-  kml+=lineplacemark('Centerline',pathPts,'ff60a5fa',2);
-  kml+=lineplacemark('Front Wheel L',tracks.fL,kFull,2.5);
-  kml+=lineplacemark('Front Wheel R',tracks.fR,kFull,2.5);
-  kml+=lineplacemark('Front Overhang L',tracks.fOL,kFull+'aa'.substring(0,2)+kFull.substring(2),1.5);
-  kml+=lineplacemark('Front Overhang R',tracks.fOR,kFull,1.5);
-  kml+=lineplacemark('Rear Axle L',tracks.p1L,kBlue,1.5);
-  kml+=lineplacemark('Rear Axle R',tracks.p1R,kBlue,1.5);
-  if(tracks.tL.length){
-    kml+=lineplacemark('Trailer Rear L',tracks.tL,kYellow,2.5);
-    kml+=lineplacemark('Trailer Rear R',tracks.tR,kYellow,2.5);
-  }
-
-  // Swept envelope as filled Polygon
+  // Export: vehicle swept outline edges + filled swept envelope polygon only
   if(env.leftB.length>2){
+    // Outer boundary lines (left and right edge of swept path)
+    kml+=lineplacemark('Swept Outline - Left',env.leftB,kFull,2.5);
+    kml+=lineplacemark('Swept Outline - Right',env.rightB,kFull,2.5);
+
+    // Filled swept envelope polygon
     const ring=[...env.leftB,...[...env.rightB].reverse(),env.leftB[0]];
     const coords=ring.map(toLngLat).join('\n');
-    kml+=`  <Placemark><name>Swept Envelope</name>
+    kml+=`  <Placemark><name>Swept Envelope — ${S.vehicle.name}</name>
     <Style>
       <PolyStyle><color>${kSemi}</color><outline>1</outline></PolyStyle>
-      <LineStyle><color>${kFull}</color><width>1.5</width></LineStyle>
+      <LineStyle><color>${kFull}</color><width>2</width></LineStyle>
     </Style>
     <Polygon><tessellate>1</tessellate>
       <outerBoundaryIs><LinearRing><coordinates>\n${coords}\n      </coordinates></LinearRing></outerBoundaryIs>
@@ -2417,17 +2526,145 @@ function exportKML(){
 }
 
 // ══════════════════════════════════════════════════════════════════
-// 18. VEHICLE PANEL
+// 18. CUSTOM VEHICLE BUILDER
+// ══════════════════════════════════════════════════════════════════
+const CUSTOM_VEH_KEY='plts-custom-vehicles';
+let _editingCustomId=null; // id of vehicle being edited (null = new)
+
+function loadCustomVehicles(){
+  try{
+    const saved=localStorage.getItem(CUSTOM_VEH_KEY);
+    if(!saved) return;
+    const list=JSON.parse(saved);
+    list.forEach(v=>{
+      if(!VEHICLES.find(x=>x.id===v.id)) VEHICLES.push(v);
+    });
+  }catch(e){/* ignore corrupt storage */}
+}
+
+function openCustomVehicleModal(editId){
+  _editingCustomId=editId||null;
+  // Populate template dropdown
+  const sel=document.getElementById('cv-template');
+  sel.innerHTML='<option value="">— Blank / manual entry —</option>';
+  VEHICLES.forEach(v=>{
+    const o=document.createElement('option');
+    o.value=v.id; o.textContent=`${v.name} (${v.code})`;
+    sel.appendChild(o);
+  });
+  // If editing, pre-fill fields
+  const base=editId?VEHICLES.find(v=>v.id===editId):null;
+  if(base){
+    document.getElementById('cv-name').value=base.name;
+    document.getElementById('cv-cat').value=base.cat;
+    document.getElementById('cv-code').value=base.code;
+    document.getElementById('cv-L').value=base.L;
+    document.getElementById('cv-W').value=base.W;
+    document.getElementById('cv-Rmin').value=base.Rmin;
+    document.getElementById('cv-Fo').value=base.Fo;
+    document.getElementById('cv-Ro').value=base.Ro;
+    document.getElementById('cv-TW').value=base.TW;
+    document.getElementById('cv-L1').value=base.L1;
+    document.getElementById('cv-L2').value=base.L2||0;
+    document.getElementById('cv-Fwd').value=base.Fwd||0;
+    document.getElementById('cv-color').value=base.color||'#f59e0b';
+  } else {
+    document.getElementById('cv-name').value='';
+    document.getElementById('cv-cat').value='Special';
+    document.getElementById('cv-code').value='';
+    ['L','W','Rmin','Fo','Ro','TW','L1'].forEach(f=>document.getElementById('cv-'+f).value='');
+    document.getElementById('cv-L2').value='0';
+    document.getElementById('cv-Fwd').value='0';
+    document.getElementById('cv-color').value='#f59e0b';
+  }
+  document.getElementById('cv-err').style.display='none';
+  document.getElementById('custom-veh-modal').style.display='flex';
+}
+function closeCustomVehicleModal(){
+  document.getElementById('custom-veh-modal').style.display='none';
+}
+function applyVehicleTemplate(id){
+  const v=VEHICLES.find(x=>x.id===id); if(!v) return;
+  document.getElementById('cv-L').value=v.L;
+  document.getElementById('cv-W').value=v.W;
+  document.getElementById('cv-Rmin').value=v.Rmin;
+  document.getElementById('cv-Fo').value=v.Fo;
+  document.getElementById('cv-Ro').value=v.Ro;
+  document.getElementById('cv-TW').value=v.TW;
+  document.getElementById('cv-L1').value=v.L1;
+  document.getElementById('cv-L2').value=v.L2||0;
+  document.getElementById('cv-Fwd').value=v.Fwd||0;
+  document.getElementById('cv-color').value=v.color||'#f59e0b';
+  if(!document.getElementById('cv-cat').value) document.getElementById('cv-cat').value=v.cat;
+}
+function saveCustomVehicle(){
+  const errEl=document.getElementById('cv-err');
+  errEl.style.display='none';
+  const name=document.getElementById('cv-name').value.trim();
+  const cat=document.getElementById('cv-cat').value.trim()||'Custom';
+  const code=document.getElementById('cv-code').value.trim()||name.substring(0,4).toUpperCase();
+  const L=parseFloat(document.getElementById('cv-L').value);
+  const W=parseFloat(document.getElementById('cv-W').value);
+  const Rmin=parseFloat(document.getElementById('cv-Rmin').value);
+  const Fo=parseFloat(document.getElementById('cv-Fo').value)||0;
+  const Ro=parseFloat(document.getElementById('cv-Ro').value)||0;
+  const TW=parseFloat(document.getElementById('cv-TW').value)||W-1;
+  const L1=parseFloat(document.getElementById('cv-L1').value);
+  const L2=parseFloat(document.getElementById('cv-L2').value)||0;
+  const Fwd=parseFloat(document.getElementById('cv-Fwd').value)||0;
+  const color=document.getElementById('cv-color').value||'#f59e0b';
+  // Validate
+  if(!name){errEl.textContent='Vehicle name is required.';errEl.style.display='block';return;}
+  if(isNaN(L)||L<5){errEl.textContent='Total Length must be ≥ 5 ft.';errEl.style.display='block';return;}
+  if(isNaN(W)||W<3){errEl.textContent='Width must be ≥ 3 ft.';errEl.style.display='block';return;}
+  if(isNaN(Rmin)||Rmin<5){errEl.textContent='Min Turn Radius must be ≥ 5 ft.';errEl.style.display='block';return;}
+  if(isNaN(L1)||L1<1){errEl.textContent='L1 (front axle to pivot) must be ≥ 1 ft.';errEl.style.display='block';return;}
+
+  const id=_editingCustomId||('CUS_'+Date.now());
+  const veh={id,cat,name,code,color,W,L,Fo,Ro,TW,Rmin,L1,L2,Fwd,_custom:true};
+
+  // Remove old entry if editing
+  const existIdx=VEHICLES.findIndex(v=>v.id===id);
+  if(existIdx>=0) VEHICLES.splice(existIdx,1);
+  VEHICLES.push(veh);
+
+  // Persist custom vehicles to localStorage
+  const customs=VEHICLES.filter(v=>v._custom);
+  localStorage.setItem(CUSTOM_VEH_KEY,JSON.stringify(customs));
+
+  closeCustomVehicleModal();
+  buildVehicleList();
+  selectVehicle(id);
+}
+function deleteCustomVehicle(id,e){
+  e.stopPropagation();
+  if(!confirm('Delete this custom vehicle?')) return;
+  const idx=VEHICLES.findIndex(v=>v.id===id);
+  if(idx>=0) VEHICLES.splice(idx,1);
+  const customs=VEHICLES.filter(v=>v._custom);
+  localStorage.setItem(CUSTOM_VEH_KEY,JSON.stringify(customs));
+  if(S.vehicle.id===id) S.vehicle=VEHICLES[0];
+  buildVehicleList();
+  render();
+}
+
+// ══════════════════════════════════════════════════════════════════
+// 18b. VEHICLE PANEL
 // ══════════════════════════════════════════════════════════════════
 function buildVehicleList(){
   const list=document.getElementById('vlist');
+  list.innerHTML='';
   const cats=[...new Set(VEHICLES.map(v=>v.cat))];
   cats.forEach(cat=>{
     const h=document.createElement('div');h.className='vcat';h.textContent=cat;list.appendChild(h);
     VEHICLES.filter(v=>v.cat===cat).forEach(v=>{
       const el=document.createElement('div');
       el.className='vitem'+(v.id===S.vehicle.id?' active':'');el.id=`vi-${v.id}`;
-      el.innerHTML=`<div><div class="vname">${v.name}</div><div class="vcode">${v.code}&nbsp; W:${v.W.toFixed(1)}ft&nbsp; WB:${(v.L1+(v.L2||0)).toFixed(0)}ft</div></div><div class="vswatch" style="background:${v.color}"></div>`;
+      // Custom vehicles get edit/delete icons
+      const customBtns=v._custom?`
+        <span onclick="openCustomVehicleModal('${v.id}')" title="Edit" style="cursor:pointer;color:#6b7280;font-size:13px;padding:2px 3px;line-height:1" onmouseover="this.style.color='#f1f5f9'" onmouseout="this.style.color='#6b7280'">✏</span>
+        <span onclick="deleteCustomVehicle('${v.id}',event)" title="Delete" style="cursor:pointer;color:#6b7280;font-size:13px;padding:2px 3px;line-height:1" onmouseover="this.style.color='#f87171'" onmouseout="this.style.color='#6b7280'">✕</span>`:'';
+      el.innerHTML=`<div style="min-width:0;flex:1"><div class="vname">${v.name}${v._custom?'&nbsp;<span style="font-size:9px;color:#f59e0b;border:1px solid #92400e;border-radius:3px;padding:0 3px">CUSTOM</span>':''}</div><div class="vcode">${v.code}&nbsp; W:${v.W.toFixed(1)}ft&nbsp; WB:${(v.L1+(v.L2||0)).toFixed(0)}ft</div></div><div style="display:flex;align-items:center;gap:2px">${customBtns}<div class="vswatch" style="background:${v.color};margin-left:4px"></div></div>`;
       el.onclick=()=>selectVehicle(v.id);
       list.appendChild(el);
     });
@@ -2460,6 +2697,7 @@ function updateVehicleInfo(){
 // ══════════════════════════════════════════════════════════════════
 // 19. INIT
 // ══════════════════════════════════════════════════════════════════
+loadCustomVehicles(); // restore saved custom vehicles before building list
 buildVehicleList();updateVehicleInfo();setMode('draw');updateSpeedPanel();
 setStatus(MODE_HELP.draw);
 

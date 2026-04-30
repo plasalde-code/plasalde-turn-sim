@@ -1063,30 +1063,58 @@ function render(){
     // Briefly lock draw mode to prevent spam-clicking
     if(!S._drawLocked){S._drawLocked=true;setTimeout(()=>{S._drawLocked=false;},1200);}
     document.getElementById('min-warn').style.display='none';
-    // Red banner
+
+    // Auto-select the bad node and show the radius panel immediately.
+    // Set S.mode directly (not via setMode) to avoid a recursive render() call.
+    S.selId=vs[cornerCheck.badIndex].id;
+    const wasNotSelect=S.mode!=='select';
+    if(wasNotSelect){
+      S.mode='select';
+      document.querySelectorAll('.tbtn').forEach(b=>b.classList.remove('active'));
+      const tbs=document.getElementById('tbtn-select');
+      if(tbs) tbs.classList.add('active');
+      document.getElementById('stage-container').style.cursor='default';
+    }
+
+    // Build helpful error message with the specific minimum radius for this vehicle
+    const isArtic2=S.vehicle.L2>0;
+    const maxDeg=isArtic2?45:75;
+    const minR=S.vehicle.Rmin;
     const cLbl=new Konva.Label({x:8,y:8,listening:false,opacity:.97});
     cLbl.add(new Konva.Tag({fill:'rgba(127,29,29,.93)',cornerRadius:5,stroke:'#ef4444',strokeWidth:1}));
     cLbl.add(new Konva.Text({
-      text:`⚠  Turn too sharp at node ${cornerCheck.badIndex+1} (${cornerCheck.deflectionDeg.toFixed(0)}° deflection)\n    Fix: click the node in Select mode → set a Curve Radius, or spread your nodes further apart.`,
+      text:`⚠  Node ${cornerCheck.badIndex+1}: ${cornerCheck.deflectionDeg.toFixed(0)}° turn — too sharp for ${S.vehicle.code} (limit ${maxDeg}° without a radius)\n`+
+           `   ✔  Node ${cornerCheck.badIndex+1} is selected. Set Curve Radius ≥ ${minR} ft in the panel ← or spread the nodes further apart.`,
       fontSize:12,fontStyle:'bold',fill:'#fca5a5',padding:7,lineHeight:1.6
     }));
     mainLayer.add(cLbl);
-    // Draw vertices only — highlight the bad node in red
+
+    // Draw vertices — bad node is red AND clickable (re-opens panel if deselected)
     vs.forEach((v,i)=>{
       const isBad=(i===cornerCheck.badIndex);
       const c=new Konva.Circle({
         x:v.x,y:v.y,radius:isBad?10:6,
         fill:isBad?'#ef4444':'#1d4ed8',
-        stroke:'#fff',strokeWidth:isBad?2.5:1.5,listening:false
+        stroke:'#fff',strokeWidth:isBad?2.5:1.5,
+        listening:isBad,   // bad node is interactive; others are not
+        draggable:isBad,   // allow dragging bad node to spread it
+        id:v.id,
       });
-      mainLayer.add(c);
       if(isBad){
-        // Pulsing ring around bad node
+        // Click bad node → ensure it stays selected & panel stays open
+        c.on('click tap',()=>{S.selId=v.id;updatePropPanel();render();});
+        c.on('dragmove',e=>{v.x=e.target.x();v.y=e.target.y();
+          if(S.aerial&&S.leaflet){const ll=S.leaflet.containerPointToLatLng([v.x,v.y]);v.lat=ll.lat;v.lng=ll.lng;}
+        });
+        c.on('dragend',()=>{render();});
+        // Pulsing ring
         mainLayer.add(new Konva.Circle({x:v.x,y:v.y,radius:18,stroke:'#ef4444',strokeWidth:1.5,dash:[4,3],fill:'transparent',listening:false}));
       }
+      mainLayer.add(c);
       mainLayer.add(new Konva.Text({x:v.x+10,y:v.y-8,text:String(i+1),fontSize:10,fill:isBad?'#ef4444':'#6b7280',listening:false}));
     });
     mainLayer.batchDraw(); swLayer.batchDraw();
+    updatePropPanel();   // open the radius panel for the auto-selected node
     updateVehicleStates();
     return;
   }
@@ -1320,8 +1348,17 @@ function render(){
     });
     c.on('click tap',()=>{if(S.mode==='select'){S.selId=v.id;updatePropPanel();render();}});
     c.on('dragmove',e=>{
-      v.x=e.target.x();v.y=e.target.y();
-      if(S.aerial&&S.leaflet){const ll=S.leaflet.containerPointToLatLng([v.x,v.y]);v.lat=ll.lat;v.lng=ll.lng;}
+      // Update vertex data as the circle moves — do NOT call render() here!
+      // render() calls mainLayer.destroyChildren() which destroys this very circle
+      // mid-drag and kills the drag gesture after the first pixel.
+      v.x=e.target.x(); v.y=e.target.y();
+      if(S.aerial&&S.leaflet){
+        const ll=S.leaflet.containerPointToLatLng([v.x,v.y]);
+        v.lat=ll.lat; v.lng=ll.lng;
+      }
+    });
+    c.on('dragend',()=>{
+      // Full re-render once the drag is complete (swept path + vertex circles rebuilt)
       render();
     });
     mainLayer.add(c);
@@ -1517,7 +1554,7 @@ function centerMapOnKML(features){
 function drawKMLFeatures(){
   kmlLayer.destroyChildren();
   if(!S.leaflet||!S.kmlFeatures.length){kmlLayer.batchDraw();return;}
-  const LINE_COL='#67e8f9', POLY_COL='#67e8f9', POLY_FILL='rgba(103,232,249,0.08)';
+  const LINE_COL='#22d3ee', POLY_STROKE='#22d3ee', POLY_FILL='rgba(34,211,238,0.06)';
   S.kmlFeatures.forEach(f=>{
     if(f.type==='line'||f.type==='polygon'){
       const pts=f.coords.flatMap(c=>{
@@ -1525,17 +1562,18 @@ function drawKMLFeatures(){
         return [p.x,p.y];
       });
       if(pts.length<4) return;
-      const closed=f.type==='polygon';
-      if(closed){
+      if(f.type==='polygon'){
+        // Solid fill + solid stroke — no dash (avoids dot-cloud on dense coords)
         kmlLayer.add(new Konva.Line({
           points:pts, closed:true,
-          fill:POLY_FILL, stroke:POLY_COL, strokeWidth:1.5,
-          dash:[6,4], listening:false, opacity:0.85
+          fill:POLY_FILL, stroke:POLY_STROKE, strokeWidth:1.5,
+          listening:false, opacity:0.9
         }));
       } else {
+        // Lines: solid stroke for clarity
         kmlLayer.add(new Konva.Line({
-          points:pts, stroke:LINE_COL, strokeWidth:1.8,
-          dash:[8,5], listening:false, opacity:0.85
+          points:pts, stroke:LINE_COL, strokeWidth:2,
+          listening:false, opacity:0.85
         }));
       }
     } else if(f.type==='point'){
@@ -1593,8 +1631,10 @@ function toggleAerial(){
       S.leaflet=L.map('map-container',{zoomControl:true,scrollWheelZoom:true}).setView([25.775,-80.19],17);
       L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
         {attribution:'Imagery &copy; Esri',maxZoom:21,maxNativeZoom:19,crossOrigin:true}).addTo(S.leaflet);
-      // When map moves: reproject vertices and re-render
-      S.leaflet.on('moveend zoomend',()=>{
+      // When map moves: reproject vertices and re-render.
+      // 'move' fires on EVERY pan step (real-time) so vertices follow tiles during drag.
+      // 'moveend'/'zoomend' also fire at the end for a clean final redraw.
+      S.leaflet.on('move moveend zoomend',()=>{
         S.ppm=aerialPpm(S.leaflet);
         S.estPpm=null;
         updateScaleDisplay();
@@ -1801,10 +1841,12 @@ function setMode(m){
   document.getElementById('stage-container').style.cursor={draw:'crosshair',select:'default',calibrate:'crosshair',pan:'grab',measure:'crosshair'}[m]||'default';
   // In aerial pan mode, let pointer events pass through to Leaflet
   document.getElementById('stage-container').style.pointerEvents=(S.aerial&&m==='pan')?'none':'auto';
-  // Explicitly control Leaflet dragging so it doesn't interfere in non-pan modes
+  // In aerial pan mode enable Leaflet's native drag (stage has pointer-events:none so Leaflet sees events).
+  // In all other modes the stage-container sits on top (pointer-events:auto) so Leaflet never receives
+  // mouse events — disabling its drag handler is therefore redundant and can interfere with panBy().
   if(S.leaflet){
     if(m==='pan'){S.leaflet.dragging.enable();}
-    else{S.leaflet.dragging.disable();}
+    // else: leave dragging in whatever state it's in — stage blocks events anyway
   }
   setStatus(MODE_HELP[m]||'');
   mainLayer.find('Circle').forEach(c=>c.draggable(m==='select'));

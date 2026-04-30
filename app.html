@@ -12,13 +12,14 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="config.js"></script>
 <script>
-// ── AUTH GUARD ─────────────────────────────────────────────────────
-// Redirect to login if not signed in. Runs before page renders.
+// ── AUTH GUARD ──────────────────────────────────────────────────────
+// Redirect to login if not signed in. Terms check runs later (in main
+// script) once the DOM is fully ready.
+const TERMS_VERSION = 'terms_v2'; // bump this string whenever terms change
 (async()=>{
   const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
   const {data:{session}} = await sb.auth.getSession();
   if(!session){ window.location.href='login.html'; return; }
-  // Store for logout button
   window._sb = sb;
   window._user = session.user;
 })();
@@ -369,6 +370,36 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#111827;color:#e5
       <button class="mbtn mbtn-ghost" onclick="cancelScale()">Cancel</button>
       <button class="mbtn mbtn-pri" id="mbtn-ok" onclick="confirmScale()">Apply Scale</button>
     </div>
+  </div>
+</div>
+
+<!-- ── Terms Update Gate ──────────────────────────────────────────────
+     Shown to ANY user (new or existing) who hasn't accepted the current
+     terms version. Blocks the app until accepted. z-index:400 (above app,
+     below nothing — it's the topmost layer).                            -->
+<div id="terms-gate" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:400;align-items:center;justify-content:center;backdrop-filter:blur(6px)">
+  <div style="background:#1f2937;border:1px solid #374151;border-radius:16px;padding:36px;width:100%;max-width:540px;margin:16px;max-height:90vh;overflow-y:auto">
+    <div style="font-size:11px;font-weight:700;color:#ef4444;text-transform:uppercase;letter-spacing:.8px;margin-bottom:12px">📋 Terms of Use — Updated</div>
+    <h2 style="font-size:20px;font-weight:800;color:#f1f5f9;margin-bottom:8px">Please review our updated terms</h2>
+    <p style="font-size:13px;color:#94a3b8;margin-bottom:20px;line-height:1.6">
+      We've added intellectual property protections to our terms. You must accept to continue using P.Lasalde Turn Simulator.
+    </p>
+    <div style="background:#111827;border:1px solid #374151;border-radius:8px;padding:16px;font-size:12px;color:#64748b;line-height:1.9;max-height:220px;overflow-y:auto;margin-bottom:18px">
+      <strong style="color:#d1d5db">Planning Disclaimer:</strong> P.Lasalde Turn Simulator is provided for planning, visualization, and preliminary analysis purposes only. Results are not a substitute for professional engineering analysis and should not be used as the sole basis for any design, construction, or operational decision. All turning path simulations are approximate. Real-world vehicle performance may vary. P.Lasalde, its developers, and affiliates are not responsible or liable for any decisions, damages, or consequences arising from the use or misuse of this software.
+      <br><br>
+      <strong style="color:#d1d5db">Intellectual Property:</strong> This software — including its source code, simulation algorithms, AASHTO vehicle library, kinematic engine, and user interface — is the exclusive intellectual property of P.Lasalde. <strong style="color:#f1f5f9">Unauthorized copying, reproduction, modification, reverse engineering, redistribution, or commercial use of any part of this software, in whole or in part, is strictly prohibited</strong> without prior written permission from P.Lasalde. Access to this tool does not grant any license to the underlying software.
+      <br><br>
+      <strong style="color:#d1d5db">Account:</strong> Your account is personal and non-transferable. You may not share access credentials or use this tool on behalf of third parties without authorization.
+    </div>
+    <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;margin-bottom:22px;font-size:12px;color:#94a3b8;line-height:1.6">
+      <input type="checkbox" id="terms-gate-chk" style="width:16px;height:16px;margin-top:2px;accent-color:#ef4444;flex-shrink:0;cursor:pointer">
+      <span>I have read and agree to the updated Terms of Use, including the <strong style="color:#f1f5f9">intellectual property restrictions</strong>. I understand that copying or redistributing any part of this software is prohibited.</span>
+    </label>
+    <button id="terms-gate-btn" onclick="acceptTerms()"
+      style="width:100%;padding:13px;background:#ef4444;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;transition:background .15s">
+      I Accept — Continue to App
+    </button>
+    <p style="font-size:11px;color:#4b5563;margin-top:12px;text-align:center">By continuing you confirm you are a qualified professional responsible for verifying all results.</p>
   </div>
 </div>
 
@@ -2466,6 +2497,30 @@ async function searchLocation(){
   }catch{alert('Search failed. Check your connection.');}
 }
 
+// ── Terms gate acceptance ─────────────────────────────────────────────
+async function acceptTerms(){
+  const chk=document.getElementById('terms-gate-chk');
+  if(!chk.checked){
+    chk.closest('label').style.outline='1px solid #ef4444';
+    chk.closest('label').style.borderRadius='4px';
+    setTimeout(()=>{chk.closest('label').style.outline='';},1800);
+    return;
+  }
+  const btn=document.getElementById('terms-gate-btn');
+  btn.disabled=true; btn.textContent='Saving…';
+  // Persist acceptance to Supabase user metadata so it survives across devices/sessions
+  const {error}=await window._sb.auth.updateUser({data:{[TERMS_VERSION]:true}});
+  if(error){
+    alert('Could not save your acceptance. Please try again.\n'+error.message);
+    btn.disabled=false; btn.textContent='I Accept — Continue to App';
+    return;
+  }
+  document.getElementById('terms-gate').style.display='none';
+  // Refresh local user object so re-checks don't re-show the gate
+  const {data:{session}}=await window._sb.auth.getSession();
+  if(session) window._user=session.user;
+}
+
 // Welcome modal
 function closeWelcome(){
   if(document.getElementById('skip-welcome').checked)
@@ -2481,6 +2536,21 @@ async function doLogout(){
   if(window._sb){ await window._sb.auth.signOut(); }
   window.location.href='login.html';
 }
+
+// ── TERMS GATE CHECK ─────────────────────────────────────────────────
+// Runs after DOM is ready. Waits for auth guard to set window._sb,
+// then shows the gate modal if the current user hasn't accepted terms_v2.
+(async()=>{
+  // Poll for auth guard to finish (usually <100 ms)
+  for(let i=0;i<40&&!window._sb;i++) await new Promise(r=>setTimeout(r,50));
+  if(!window._sb) return; // auth guard failed / redirected
+  const {data:{session}}=await window._sb.auth.getSession();
+  if(!session) return; // shouldn't happen (auth guard would have redirected)
+  const accepted=session.user?.user_metadata?.[TERMS_VERSION];
+  if(!accepted){
+    document.getElementById('terms-gate').style.display='flex';
+  }
+})();
 </script>
 </body>
 </html>

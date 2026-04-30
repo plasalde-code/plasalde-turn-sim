@@ -1713,15 +1713,12 @@ const _sc=document.getElementById('stage-container');
 
 _sc.addEventListener('mousedown',e=>{
   if(!S.aerial||!S.leaflet||e.button!==0) return;
-  // In select mode, skip pan if user is clicking on a vertex
-  if(S.mode==='select'){
-    const pos=stage.getPointerPosition();
-    if(pos){
-      let onV=false;
-      S.vertices.forEach(v=>{const dx=v.x-pos.x,dy=v.y-pos.y;if(Math.sqrt(dx*dx+dy*dy)<22)onV=true;});
-      if(onV) return; // let Konva handle vertex drag
-    }
-  }
+  // Use Konva's hit-test to detect ANY interactive shape under the pointer —
+  // vertex circles (select mode), PDF overlay image, Transformer resize/rotate
+  // handles, etc.  If we're over one, let Konva handle the drag natively and
+  // do NOT start a map pan (which would fight the Konva gesture).
+  const pos=stage.getPointerPosition();
+  if(pos && stage.getIntersection(pos)) return;
   _ap.on=true; _ap.lx=e.clientX; _ap.ly=e.clientY; _ap.panned=false;
 });
 document.addEventListener('mousemove',e=>{

@@ -1,0 +1,2198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>P.Lasalde Turn Simulator</title>
+<script src="https://unpkg.com/konva@9.3.14/konva.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<script>
+// ── AUTH GUARD ─────────────────────────────────────────────────────
+// Redirect to login if not signed in. Runs before page renders.
+(async()=>{
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+  const {data:{session}} = await sb.auth.getSession();
+  if(!session){ window.location.href='login.html'; return; }
+  // Store for logout button
+  window._sb = sb;
+  window._user = session.user;
+})();
+</script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;background:#111827;color:#e5e7eb;height:100vh;overflow:hidden;display:flex;flex-direction:column}
+#hdr{height:46px;background:#1f2937;display:flex;align-items:center;padding:0 14px;gap:10px;border-bottom:1px solid #374151;flex-shrink:0}
+#hdr-title{font-size:14px;font-weight:700;color:#f87171;letter-spacing:.3px;white-space:nowrap}
+#hdr-actions{display:flex;gap:6px;margin-left:auto}
+.hbtn{padding:5px 10px;border-radius:6px;border:1px solid #374151;background:transparent;color:#9ca3af;cursor:pointer;font-size:12px;font-weight:500;display:flex;align-items:center;gap:5px;transition:all .15s;white-space:nowrap}
+.hbtn:hover{background:#374151;color:#e5e7eb}
+.hbtn svg{width:14px;height:14px;flex-shrink:0}
+#app{display:flex;flex:1;overflow:hidden}
+#sidebar{width:256px;background:#1f2937;border-right:1px solid #374151;display:flex;flex-direction:column;overflow-y:auto;flex-shrink:0}
+#canvas-wrap{flex:1;position:relative;overflow:hidden;background:#0f172a}
+.s-sec{padding:10px 12px;border-bottom:1px solid #374151}
+.s-sec h3{font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#4b5563;margin-bottom:8px;font-weight:600}
+#tool-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+.tbtn{padding:7px 4px;border-radius:7px;border:1px solid #374151;background:transparent;color:#9ca3af;cursor:pointer;font-size:11px;text-align:center;transition:all .15s;display:flex;flex-direction:column;align-items:center;gap:3px;line-height:1.2}
+.tbtn svg{width:18px;height:18px}
+.tbtn:hover{background:#374151;color:#e5e7eb}
+.tbtn.active{background:#dc2626;color:#fff;border-color:#dc2626}
+.tbtn small{font-size:9px;opacity:.7}
+.vcat{font-size:9px;text-transform:uppercase;letter-spacing:.8px;color:#4b5563;padding:5px 0 2px;font-weight:600}
+.vitem{padding:6px 8px;border-radius:6px;cursor:pointer;font-size:12px;display:flex;justify-content:space-between;align-items:center;transition:background .1s;border:1px solid transparent;gap:6px}
+.vitem:hover{background:#374151}
+.vitem.active{background:#1e3a5f;border-color:#1d4ed8}
+.vname{font-size:12px;line-height:1.2}
+.vcode{font-size:10px;color:#6b7280;font-family:monospace;margin-top:1px}
+.vswatch{width:9px;height:9px;border-radius:2px;flex-shrink:0}
+#prop-panel{display:none}
+#prop-panel.on{display:block}
+.prow{display:flex;align-items:center;justify-content:space-between;margin-bottom:7px}
+.plabel{font-size:11px;color:#6b7280}
+.pval-wrap{display:flex;align-items:center;gap:5px}
+.pinput{width:88px;padding:4px 8px;background:#111827;border:1px solid #374151;border-radius:6px;color:#e5e7eb;font-size:12px;text-align:right;outline:none}
+.pinput:focus{border-color:#dc2626}
+.pinput:disabled{color:#4b5563;cursor:not-allowed}
+.punit{font-size:11px;color:#6b7280;width:14px}
+.phint{font-size:10px;color:#4b5563;margin-top:2px}
+#scale-val{font-size:12px;font-weight:600;color:#6b7280}
+#scale-val.ok{color:#22c55e}
+.scale-hint{font-size:10px;color:#4b5563;margin-top:3px}
+.utog{display:flex;border:1px solid #374151;border-radius:7px;overflow:hidden}
+.utog button{flex:1;padding:5px;background:transparent;border:none;color:#6b7280;cursor:pointer;font-size:12px;transition:all .15s}
+.utog button.active{background:#dc2626;color:#fff}
+/* Legend */
+.legend{margin-top:8px;background:#111827;border-radius:7px;padding:8px 10px;display:flex;flex-direction:column;gap:4px}
+.lrow{display:flex;align-items:center;gap:7px;font-size:10px;color:#6b7280}
+.lseg{flex-shrink:0;width:28px;height:2px;border-radius:1px}
+.lbox{flex-shrink:0;width:28px;height:8px;border-radius:2px}
+/* Status */
+#status{position:absolute;bottom:10px;left:10px;background:rgba(31,41,55,.9);border:1px solid #374151;border-radius:7px;padding:5px 10px;font-size:11px;color:#6b7280;pointer-events:none;backdrop-filter:blur(4px);max-width:420px}
+/* Modals */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);display:flex;align-items:center;justify-content:center;z-index:200}
+.overlay.hide{display:none}
+.mbox{background:#1f2937;border:1px solid #374151;border-radius:12px;padding:22px;width:310px}
+.mbox h2{font-size:15px;font-weight:600;margin-bottom:5px}
+.mbox p{font-size:12px;color:#6b7280;margin-bottom:14px;line-height:1.5}
+.mstep{font-size:12px;color:#f87171;margin-bottom:12px;font-weight:500}
+.minput-row{display:flex;gap:7px;align-items:center;margin-bottom:10px;display:none}
+.minput{flex:1;padding:7px 10px;background:#111827;border:1px solid #374151;border-radius:7px;color:#e5e7eb;font-size:13px;outline:none}
+.minput:focus{border-color:#dc2626}
+.munit{font-size:12px;color:#6b7280}
+.mactions{display:flex;gap:7px;justify-content:flex-end;margin-top:6px}
+.mbtn{padding:6px 14px;border-radius:7px;font-size:12px;font-weight:500;cursor:pointer;border:none;transition:all .15s}
+.mbtn-ghost{background:transparent;color:#6b7280;border:1px solid #374151}
+.mbtn-ghost:hover{background:#374151;color:#e5e7eb}
+.mbtn-pri{background:#dc2626;color:#fff;display:none}
+.mbtn-pri:hover{background:#b91c1c}
+#min-warn{position:absolute;top:10px;right:10px;background:#7f1d1d;border:1px solid #ef4444;border-radius:7px;padding:6px 10px;font-size:11px;color:#fca5a5;display:none;pointer-events:none}
+#sidebar::-webkit-scrollbar{width:3px}
+#sidebar::-webkit-scrollbar-track{background:transparent}
+#sidebar::-webkit-scrollbar-thumb{background:#374151;border-radius:2px}
+#vinfo{background:#111827;border-radius:7px;padding:8px 10px;margin-top:7px;font-size:11px;color:#6b7280;line-height:1.7}
+#vinfo strong{color:#d1d5db;font-size:12px}
+/* Toggle for display options */
+.opt-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:5px;font-size:11px;color:#9ca3af}
+.chk{width:14px;height:14px;accent-color:#dc2626;cursor:pointer}
+</style>
+</head>
+<body>
+
+<div id="hdr">
+  <span id="hdr-title">▶ P.Lasalde Turn Simulator</span>
+  <div id="hdr-actions">
+    <button class="hbtn" id="btn-aerial" onclick="toggleAerial()" title="Toggle satellite imagery background">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 010 20M12 2a15.3 15.3 0 000 20"/></svg>
+      Aerial
+    </button>
+    <button class="hbtn" onclick="loadPDF()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+      Load PDF
+    </button>
+    <button class="hbtn" id="btn-kml" onclick="triggerKMLLoad()" title="Import KML/KMZ as reference geometry">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
+      <span id="kml-btn-label">KML In</span>
+    </button>
+    <button class="hbtn" id="btn-kml-clear" onclick="clearKML()" title="Clear imported KML geometry" style="display:none;color:#f87171;border-color:#7f1d1d">
+      ✕ KML
+    </button>
+    <button class="hbtn" onclick="undoLast()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 00-4-4H4"/></svg>
+      Undo
+    </button>
+    <button class="hbtn" onclick="clearPath()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+      Clear
+    </button>
+    <button class="hbtn" id="btn-reverse" onclick="toggleReverse()" title="Toggle reverse maneuver simulation">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 14l-5-5 5-5"/><path d="M20 20v-7a4 4 0 00-4-4H4"/><path d="M9 10l-5 5"/></svg>
+      Reverse
+    </button>
+    <button class="hbtn" onclick="exportPNG()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      PNG
+    </button>
+    <button class="hbtn" onclick="exportDXF()" title="Export path and tracks as DXF (AutoCAD)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      DXF
+    </button>
+    <button class="hbtn" onclick="exportKML()" title="Export path and tracks as KML (Google Earth)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      KML
+    </button>
+    <button class="hbtn" onclick="doLogout()" title="Log out" style="border-color:#7f1d1d;color:#fca5a5">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+      Log Out
+    </button>
+  </div>
+</div>
+
+<div id="app">
+  <aside id="sidebar">
+    <div class="s-sec">
+      <h3>Tools</h3>
+      <div id="tool-grid">
+        <button class="tbtn active" id="tbtn-draw" onclick="setMode('draw')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+          Draw<small>Click to add pts</small>
+        </button>
+        <button class="tbtn" id="tbtn-select" onclick="setMode('select')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3l14 9-7 1-4 7L5 3z"/></svg>
+          Select<small>Move / edit R</small>
+        </button>
+        <button class="tbtn" id="tbtn-scale" onclick="startCalibrate()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+          Scale<small>Set real units</small>
+        </button>
+        <button class="tbtn" id="tbtn-pan" onclick="setMode('pan')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 9l-3 3 3 3M9 5l3-3 3 3M15 19l-3 3-3-3M19 9l3 3-3 3M2 12h20M12 2v20"/></svg>
+          Pan<small>Drag / Scroll</small>
+        </button>
+        <button class="tbtn" id="tbtn-measure" onclick="setMode('measure')" style="grid-column:span 2">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12h20M2 12l4-4M2 12l4 4M22 12l-4-4M22 12l-4 4M12 7v2M12 15v2M7 9v1M17 9v1"/></svg>
+          Measure<small>Click pts · right-click to clear</small>
+        </button>
+      </div>
+    </div>
+
+    <div class="s-sec">
+      <h3>Design Vehicle</h3>
+      <div id="vlist"></div>
+      <div id="vinfo"></div>
+      <div class="legend">
+        <div class="lrow"><div class="lbox" id="lg-swept" style="background:#ef444430;border:1px solid #ef4444"></div><span>Swept area</span></div>
+        <div class="lrow"><div class="lseg" id="lg-front" style="background:#ef4444"></div><span>Front overhang / wheel</span></div>
+        <div class="lrow"><div class="lseg" id="lg-rear1" style="background:#fb923c"></div><span>Tractor/unit rear axle</span></div>
+        <div class="lrow"><div class="lseg" id="lg-trail" style="background:#fbbf24"></div><span>Trailer rear axle (WB)</span></div>
+        <div class="lrow"><div class="lseg" style="background:#60a5fa;border-top:1px dashed #60a5fa;height:1px"></div><span>Centerline</span></div>
+        <div class="lrow"><div class="lseg" style="background:#fbbf24;border-top:1px dashed #fbbf24;height:1px"></div><span>Radius circle</span></div>
+      </div>
+    </div>
+
+    <div class="s-sec">
+      <h3>Display</h3>
+      <div class="opt-row"><span>Swept area fill</span><input type="checkbox" class="chk" id="opt-fill" checked onchange="render()"></div>
+      <div class="opt-row"><span>Wheel tracks</span><input type="checkbox" class="chk" id="opt-tracks" checked onchange="render()"></div>
+      <div class="opt-row"><span>Vehicle outlines</span><input type="checkbox" class="chk" id="opt-body" checked onchange="render()"></div>
+      <div class="opt-row"><span>Radius circles</span><input type="checkbox" class="chk" id="opt-radii" checked onchange="render()"></div>
+    </div>
+
+    <div class="s-sec" id="prop-panel">
+      <h3>Vertex Properties</h3>
+      <div class="prow">
+        <span class="plabel">Curve Radius</span>
+        <div class="pval-wrap">
+          <input type="number" class="pinput" id="inp-radius" min="0" step="5" placeholder="0"
+            oninput="onRadiusInput(this.value)" onchange="onRadiusInput(this.value)">
+          <span class="punit" id="punit">ft</span>
+        </div>
+      </div>
+      <div class="phint" id="phint">0 = sharp corner</div>
+    </div>
+
+    <div class="s-sec">
+      <h3>Scale</h3>
+      <div id="scale-val">Not calibrated</div>
+      <div class="scale-hint">Load PDF → Scale tool → click 2 pts → enter distance</div>
+    </div>
+
+    <div class="s-sec">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <h3 style="margin-bottom:0">Speed Check</h3>
+        <button id="spd-toggle" onclick="toggleSpeedCheck()"
+          style="padding:3px 10px;border-radius:20px;border:1px solid #22c55e;background:#14532d;color:#22c55e;font-size:11px;font-weight:700;cursor:pointer;transition:all .2s;letter-spacing:.5px">
+          ON
+        </button>
+      </div>
+      <div id="spd-controls">
+      <div class="opt-row" style="margin-bottom:4px">
+        <span>Design Speed</span>
+        <span id="spd-val" style="font-size:12px;font-weight:700;color:#fb923c">25 mph</span>
+      </div>
+      <input type="range" min="2" max="80" value="25" step="1" id="spd-slider"
+        style="width:100%;accent-color:#fb923c;margin-bottom:8px"
+        oninput="onSpeedChange(this.value)">
+      <div class="opt-row" style="margin-bottom:4px">
+        <span>Superelevation (e)</span>
+        <select id="emax-sel" onchange="onSpeedChange(document.getElementById('spd-slider').value)"
+          style="background:#111827;border:1px solid #374151;border-radius:5px;color:#e5e7eb;font-size:11px;padding:2px 4px">
+          <option value="0.04">4% — Urban</option>
+          <option value="0.06" selected>6% — Rural</option>
+          <option value="0.08">8% — Highway</option>
+          <option value="0.12">12% — Maximum</option>
+        </select>
+      </div>
+      <div id="spd-info" style="margin-top:6px;background:#111827;border-radius:7px;padding:8px 10px;font-size:11px;line-height:1.8">
+        <div style="display:flex;justify-content:space-between">
+          <span style="color:#6b7280">AASHTO min R</span>
+          <span id="spd-minR" style="color:#fb923c;font-weight:600">—</span>
+        </div>
+        <div style="display:flex;justify-content:space-between">
+          <span style="color:#6b7280">Vehicle steering min R</span>
+          <span id="spd-vehR" style="color:#9ca3af;font-weight:600">—</span>
+        </div>
+        <div style="border-top:1px solid #374151;margin:5px 0"></div>
+        <div style="display:flex;justify-content:space-between;align-items:baseline">
+          <span style="color:#e5e7eb;font-weight:600">Effective min R</span>
+          <span id="spd-effR" style="color:#38bdf8;font-weight:700;font-size:12px">—</span>
+        </div>
+        <div id="spd-governs" style="text-align:right;font-size:9px;color:#4b5563;margin-top:1px">—</div>
+      </div>
+      <div style="margin-top:6px;display:flex;flex-direction:column;gap:3px;font-size:10px">
+        <div style="display:flex;align-items:center;gap:6px"><div style="width:10px;height:10px;border-radius:50%;background:#22c55e;flex-shrink:0"></div><span style="color:#6b7280">Safe at design speed</span></div>
+        <div style="display:flex;align-items:center;gap:6px"><div style="width:10px;height:10px;border-radius:50%;background:#f59e0b;flex-shrink:0"></div><span style="color:#6b7280">Drivable but exceeds AASHTO</span></div>
+        <div style="display:flex;align-items:center;gap:6px"><div style="width:10px;height:10px;border-radius:50%;background:#ef4444;flex-shrink:0"></div><span style="color:#6b7280">Below vehicle steering limit</span></div>
+      </div>
+      </div><!-- end spd-controls -->
+
+      <!-- Reverse-specific parameters — shown only when Reverse is active -->
+      <div id="rev-params" style="display:none;border-top:1px solid #374151;margin-top:8px;padding-top:8px">
+        <div class="opt-row" style="margin-bottom:3px">
+          <span style="color:#fb923c;font-weight:600;font-size:11px">↩ Reverse Op. Speed</span>
+          <span id="rev-spd-val" style="font-size:12px;font-weight:700;color:#fb923c">5 mph</span>
+        </div>
+        <input type="range" min="2" max="15" value="5" step="1" id="rev-spd-slider"
+          style="width:100%;accent-color:#fb923c;margin-bottom:4px"
+          oninput="onReverseSpeedChange(this.value)">
+        <div style="font-size:9px;color:#4b5563;margin-bottom:7px">Max 15 mph · AASHTO speed formula does not apply to reverse</div>
+        <div id="rev-artangle" style="display:none;border-radius:6px;padding:6px 8px;font-size:10px;line-height:1.7;background:#111827"></div>
+      </div>
+    </div>
+
+    <div class="s-sec" id="overlay-panel" style="display:none">
+      <h3>PDF Overlay</h3>
+      <div class="opt-row" style="margin-bottom:8px">
+        <span>Opacity</span>
+        <span id="overlay-pct" style="font-size:11px;color:#9ca3af">70%</span>
+      </div>
+      <input type="range" min="0" max="100" value="70" id="overlay-opacity"
+        style="width:100%;accent-color:#dc2626;margin-bottom:10px"
+        oninput="setOverlayOpacity(this.value)">
+      <div style="font-size:10px;color:#4b5563;margin-bottom:8px">Drag · corner handles to scale · top handle to rotate</div>
+      <button id="btn-lock-overlay" onclick="lockOverlay()"
+        style="width:100%;padding:6px;border-radius:6px;border:1px solid #374151;background:#374151;color:#e5e7eb;cursor:pointer;font-size:11px;font-weight:600">
+        🔒 Lock PDF in place
+      </button>
+      <button id="btn-unlock-overlay" onclick="unlockOverlay()"
+        style="width:100%;padding:6px;border-radius:6px;border:1px solid #374151;background:transparent;color:#6b7280;cursor:pointer;font-size:11px;display:none;margin-top:4px">
+        🔓 Unlock to re-adjust
+      </button>
+      <button onclick="removeOverlay()"
+        style="width:100%;padding:6px;border-radius:6px;border:1px solid #7f1d1d;background:transparent;color:#f87171;cursor:pointer;font-size:11px;margin-top:4px">
+        🗑 Remove PDF
+      </button>
+    </div>
+
+    <div class="s-sec">
+      <h3>Units</h3>
+      <div class="utog">
+        <button id="u-ft" class="active" style="width:100%">Feet (US)</button>
+        <button id="u-m" style="display:none" onclick="setUnits('m')">Meters</button>
+      </div>
+    </div>
+  </aside>
+
+  <div id="canvas-wrap">
+    <div id="map-container" style="position:absolute;inset:0;z-index:0;display:none"></div>
+    <div id="stage-container" style="position:absolute;inset:0;z-index:1"></div>
+    <div id="status">Ready — Load a PDF background, set scale, then draw the vehicle path</div>
+    <div id="min-warn">⚠ Curve tighter than min R (<span id="min-r-val"></span>) for <span id="min-v-name"></span></div>
+    <div id="scale-bar" style="display:none;position:absolute;bottom:14px;right:14px;background:rgba(31,41,55,.88);border:1px solid #374151;border-radius:7px;padding:6px 10px;pointer-events:none;backdrop-filter:blur(4px)">
+      <div style="display:flex;align-items:center;gap:6px">
+        <div id="sb-left" style="font-size:10px;color:#9ca3af">0</div>
+        <div style="display:flex;flex-direction:column;align-items:center;gap:2px">
+          <div id="sb-bar" style="height:4px;background:#e5e7eb;border-radius:1px;border-left:2px solid #e5e7eb;border-right:2px solid #e5e7eb"></div>
+          <div id="sb-label" style="font-size:10px;color:#e5e7eb;font-weight:600;text-align:center"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="overlay hide" id="scale-modal">
+  <div class="mbox">
+    <h2>Set Drawing Scale</h2>
+    <p>Click two points on the drawing that have a known real-world distance between them.</p>
+    <div class="mstep" id="mstep">Step 1 of 2 — click first point on canvas</div>
+    <div class="minput-row" id="minput-row">
+      <input type="number" class="minput" id="mdist" placeholder="Distance" min="0.01" step="1">
+      <span class="munit" id="munit-lbl">ft</span>
+    </div>
+    <div class="mactions">
+      <button class="mbtn mbtn-ghost" onclick="cancelScale()">Cancel</button>
+      <button class="mbtn mbtn-pri" id="mbtn-ok" onclick="confirmScale()">Apply Scale</button>
+    </div>
+  </div>
+</div>
+
+<input type="file" id="pdf-file" accept=".pdf,image/*" style="display:none" onchange="onFileSelected(event)">
+<input type="file" id="kml-file" accept=".kml,.kmz" style="display:none" onchange="onKMLSelected(event)">
+
+<script>
+'use strict';
+
+// ══════════════════════════════════════════════════════════════════
+// 1. AASHTO VEHICLE LIBRARY
+//    All dimensions in FEET (AASHTO Green Book, US Customary)
+//
+//  W    = overall vehicle width
+//  L    = overall vehicle length
+//  Fo   = front overhang (front axle to front bumper)
+//  Ro   = rear overhang (last axle to rear bumper)
+//  TW   = track width (wheel center to wheel center, outer tires)
+//  Rmin = minimum turning radius at front axle centerline [ft]
+//  L1   = front axle to articulation/pivot point (5th wheel for WB)
+//  L2   = pivot point to rear-most axle (0 for rigid vehicles)
+//  Fwd  = trailer body extends this far AHEAD of 5th wheel (for body outline)
+// ══════════════════════════════════════════════════════════════════
+const VEHICLES = [
+  { id:'P',    cat:'Passenger',    name:'Passenger Car',         code:'P',
+    color:'#22c55e', W:7.0,  L:19.0,  Fo:3.0,  Ro:5.0,  TW:6.0,  Rmin:24.0,
+    L1:11.0,  L2:0,    Fwd:0 },
+
+  { id:'SU',   cat:'Single Unit',  name:'Single Unit Truck',     code:'SU',
+    color:'#f97316', W:8.0,  L:35.0,  Fo:4.0,  Ro:6.0,  TW:7.0,  Rmin:42.0,
+    L1:20.0,  L2:0,    Fwd:0 },
+
+  { id:'BUS',  cat:'Bus',          name:'City Transit Bus',      code:'BUS',
+    color:'#3b82f6', W:8.5,  L:40.0,  Fo:7.0,  Ro:9.0,  TW:7.5,  Rmin:42.0,
+    L1:24.0,  L2:0,    Fwd:0 },
+
+  { id:'ABUS', cat:'Bus',          name:'Articulated Bus',       code:'A-BUS',
+    color:'#06b6d4', W:8.5,  L:60.0,  Fo:7.0,  Ro:10.0, TW:7.5,  Rmin:42.0,
+    L1:18.0,  L2:24.0, Fwd:2.0 },
+
+  { id:'WB12', cat:'Semitrailer',  name:'WB-12 (WB-40)',         code:'WB-12',
+    color:'#ef4444', W:8.5,  L:55.0,  Fo:4.0,  Ro:3.0,  TW:8.0,  Rmin:42.0,
+    L1:13.0,  L2:27.0, Fwd:2.0 },
+
+  { id:'WB15', cat:'Semitrailer',  name:'WB-15 (WB-50)',         code:'WB-15',
+    color:'#ec4899', W:8.5,  L:65.0,  Fo:4.0,  Ro:3.0,  TW:8.0,  Rmin:45.0,
+    L1:16.0,  L2:34.0, Fwd:2.0 },
+
+  { id:'WB19', cat:'Semitrailer',  name:'WB-19 (WB-62)',         code:'WB-19',
+    color:'#a855f7', W:8.5,  L:73.5,  Fo:4.0,  Ro:3.0,  TW:8.0,  Rmin:45.0,
+    L1:20.0,  L2:42.0, Fwd:3.0 },
+
+  { id:'WB20', cat:'Semitrailer',  name:'WB-20 (WB-65)',         code:'WB-20',
+    color:'#8b5cf6', W:8.5,  L:73.5,  Fo:4.0,  Ro:4.0,  TW:8.0,  Rmin:45.0,
+    L1:21.5,  L2:43.5, Fwd:3.0 },
+
+  { id:'FIRE', cat:'Emergency',    name:'Fire Engine',           code:'FIRE',
+    color:'#f43f5e', W:8.5,  L:37.0,  Fo:5.0,  Ro:6.0,  TW:7.5,  Rmin:38.0,
+    L1:18.0,  L2:0,    Fwd:0 },
+];
+
+// ══════════════════════════════════════════════════════════════════
+// 2. APP STATE
+// ══════════════════════════════════════════════════════════════════
+const S = {
+  mode:'draw',
+  vertices:[],      // [{id,x,y,radius}] — x,y world px; radius feet
+  selId:null,
+  vehicle: VEHICLES.find(v=>v.id==='SU'),
+  ppm:null,         // pixels per meter (null = uncalibrated)
+  estPpm:null,      // auto-estimated ppm, locked once path is wide enough
+  aerial:false,     // aerial imagery mode
+  leaflet:null,     // Leaflet map instance
+  pdfOverlay:null,  // Konva.Image for aerial PDF overlay
+  pdfXformer:null,  // Konva.Transformer for overlay
+  pdfGeo:null,      // geographic anchor {anchorLatLng, widthM, heightM, rotation}
+  units:'ft',   // always feet — all internal dimensions in ft
+  reverse:false,       // reverse maneuver mode
+  reverseSpeed:5,      // mph — operational reverse speed (max 15)
+  speedCheckOn:true,   // speed check toggle
+  designSpeed:25,   // mph
+  eMax:0.06,        // superelevation (AASHTO)
+  calActive:false, calP1:null, calP2:null,
+  measurePts:[], measureLive:null,
+  kmlFeatures:[],  // [{type:'line'|'polygon'|'point', coords:[{lat,lng}], name}]
+  _uid:1,
+};
+
+// ══════════════════════════════════════════════════════════════════
+// 3. KONVA SETUP
+// ══════════════════════════════════════════════════════════════════
+const wrap = document.getElementById('canvas-wrap');
+let CW=wrap.clientWidth, CH=wrap.clientHeight;
+const stage    = new Konva.Stage({container:'stage-container',width:CW,height:CH});
+const bgLayer  = new Konva.Layer();                      // z:0 PDF/static bg
+const pdfLayer = new Konva.Layer();                      // z:1 PDF overlay
+const kmlLayer = new Konva.Layer();                      // z:2 KML reference geometry
+const swLayer  = new Konva.Layer();                      // z:3 swept fill + wheel tracks
+const mainLayer= new Konva.Layer();                      // z:4 centerline, bodies, vertices
+const uiLayer  = new Konva.Layer();                      // z:5 calibration overlay
+stage.add(bgLayer,pdfLayer,kmlLayer,swLayer,mainLayer,uiLayer);
+window.addEventListener('resize',()=>{ CW=wrap.clientWidth; CH=wrap.clientHeight; stage.width(CW); stage.height(CH); });
+
+// ══════════════════════════════════════════════════════════════════
+// 4. VECTOR MATH (screen coords — y increases downward)
+// ══════════════════════════════════════════════════════════════════
+const vadd =(a,b)=>({x:a.x+b.x,y:a.y+b.y});
+const vsub =(a,b)=>({x:a.x-b.x,y:a.y-b.y});
+const vscl =(v,s)=>({x:v.x*s,  y:v.y*s});
+const vdot =(a,b)=>a.x*b.x+a.y*b.y;
+const vcrs =(a,b)=>a.x*b.y-a.y*b.x;   // 2-D cross; <0 = left turn in screen
+const vlen = v=>Math.sqrt(v.x*v.x+v.y*v.y);
+const vdist=(a,b)=>vlen(vsub(a,b));
+const vnorm= v=>{ const l=vlen(v); return l<1e-12?{x:0,y:0}:{x:v.x/l,y:v.y/l}; };
+// In screen coords: left-of-dir = {dy,-dx};  right = {-dy,dx}
+const vleft = d=>({x: d.y,y:-d.x});
+const flat  = pts=>pts.flatMap(p=>[p.x,p.y]);
+
+// ══════════════════════════════════════════════════════════════════
+// 5. HORIZONTAL CURVE GEOMETRY
+// ══════════════════════════════════════════════════════════════════
+function computeCurve(prev,curr,next,R_px){
+  if(R_px<=1) return null;
+  const d1=vnorm(vsub(curr,prev)), d2=vnorm(vsub(next,curr));
+  const cr=vcrs(d1,d2);
+  const dp=Math.max(-1,Math.min(1,vdot(d1,d2)));
+  const dlt=Math.acos(dp);
+  if(dlt<0.005) return null;
+  let R=R_px, T=R*Math.tan(dlt/2);
+  const maxT=Math.min(vdist(prev,curr),vdist(curr,next))*0.9;
+  if(T>maxT){ T=maxT; R=T/Math.tan(dlt/2); if(R<3) return null; }
+  const bc=vadd(curr,vscl(vnorm(vsub(prev,curr)),T));
+  const ec=vadd(curr,vscl(vnorm(vsub(next,curr)),T));
+  const cdir=cr<0?{x:d1.y,y:-d1.x}:{x:-d1.y,y:d1.x};
+  const center=vadd(bc,vscl(cdir,R));
+  return{bc,ec,center,R,isLeft:cr<0,delta:dlt};
+}
+
+// ══════════════════════════════════════════════════════════════════
+// 6. DENSE PATH POINT COMPUTATION
+//    Each pt: {x,y, tx,ty (unit tangent), curvR, isLeft}
+// ══════════════════════════════════════════════════════════════════
+function computePathPoints(verts,curves){
+  if(verts.length<2) return [];
+  const pts=[], n=verts.length;
+  const push=(x,y,tx,ty,curvR,isLeft)=>pts.push({x,y,tx,ty,curvR:curvR||0,isLeft:!!isLeft});
+
+  function addLine(start,end){
+    const d=vnorm(vsub(end,start)), L=vdist(start,end);
+    if(L<0.5) return;
+    const N=Math.max(1,Math.round(L/15));
+    for(let i=1;i<=N;i++){ const t=i/N; push(start.x+d.x*L*t,start.y+d.y*L*t,d.x,d.y,0,false); }
+  }
+
+  function addArc(curve){
+    const{bc,ec,center,R,isLeft}=curve;
+    const sa=Math.atan2(bc.y-center.y,bc.x-center.x);
+    const ea=Math.atan2(ec.y-center.y,ec.x-center.x);
+    let sw=ea-sa;
+    if(isLeft){ if(sw>0) sw-=2*Math.PI; } else { if(sw<0) sw+=2*Math.PI; }
+    const N=Math.max(10,Math.round(Math.abs(sw)*R/8));
+    for(let i=1;i<=N;i++){
+      const a=sa+sw*(i/N);
+      const px=center.x+R*Math.cos(a), py=center.y+R*Math.sin(a);
+      const tx=isLeft?Math.sin(a):-Math.sin(a);
+      const ty=isLeft?-Math.cos(a):Math.cos(a);
+      push(px,py,tx,ty,R,isLeft);
+    }
+  }
+
+  const tgt0=(curves[1]&&curves[1].bc)?curves[1].bc:verts[1];
+  const d0=vnorm(vsub(tgt0,verts[0]));
+  push(verts[0].x,verts[0].y,d0.x,d0.y,0,false);
+
+  for(let i=0;i<n-1;i++){
+    const lS=i===0?verts[0]:(curves[i]?curves[i].ec:verts[i]);
+    const lE=curves[i+1]?curves[i+1].bc:verts[i+1];
+    addLine(lS,lE);
+    if(i+1<n-1&&curves[i+1]) addArc(curves[i+1]);
+  }
+  return pts;
+}
+
+// ══════════════════════════════════════════════════════════════════
+// 7. KINEMATIC AXLE SIMULATION
+//    Simulates the "trailer hitch" kinematic chain.
+//    Each frame: { frontAxle, pivotAxle, trailAxle }
+//      frontAxle = steering axle (follows path exactly)
+//      pivotAxle = tractor rear axle / 5th-wheel pivot
+//      trailAxle = trailer rear axle (null for rigid vehicles)
+// ══════════════════════════════════════════════════════════════════
+function simulateAxles(pathPts,veh,ppm){
+  const n=pathPts.length;
+  if(n<2) return [];
+  const L1=veh.L1*ppm, L2=(veh.L2||0)*ppm;
+  const dir0=vnorm(vsub(pathPts[Math.min(1,n-1)],pathPts[0]));
+
+  let pivot=vsub(pathPts[0],vscl(dir0,L1));
+  let trail=L2>0?vsub(pivot,vscl(dir0,L2)):null;
+
+  const frames=[];
+  for(const p of pathPts){
+    const front={x:p.x,y:p.y};
+    // Pull pivot to maintain L1 from front
+    const d1=vsub(front,pivot);
+    if(vlen(d1)>0.001) pivot=vsub(front,vscl(vnorm(d1),L1));
+
+    if(L2>0&&trail){
+      // Pull trailer rear to maintain L2 from pivot
+      const d2=vsub(pivot,trail);
+      if(vlen(d2)>0.001) trail=vsub(pivot,vscl(vnorm(d2),L2));
+    }
+    frames.push({
+      frontAxle:{x:front.x,y:front.y},
+      pivotAxle:{x:pivot.x,y:pivot.y},
+      trailAxle:trail?{x:trail.x,y:trail.y}:null,
+    });
+  }
+  return frames;
+}
+
+// ══════════════════════════════════════════════════════════════════
+// 8. WHEEL TRACK COMPUTATION
+//    Returns arrays of {x,y} points for each wheel path.
+//    fOL/fOR = front overhang body corners (outermost boundary)
+//    fL/fR   = front axle left/right wheel centers
+//    p1L/p1R = pivot (tractor rear) axle left/right
+//    tL/tR   = trailer rear axle left/right (WB only)
+// ══════════════════════════════════════════════════════════════════
+function computeWheelTracks(frames,veh,ppm,pathPts){
+  const HW=(veh.TW/2)*ppm, Fo=veh.Fo*ppm;
+  const fOL=[],fOR=[],fL=[],fR=[],p1L=[],p1R=[],tL=[],tR=[];
+
+  for(let i=0;i<frames.length;i++){
+    const f=frames[i];
+    // Front axle: use stored path tangent so tracks align exactly with the curve.
+    // Fall back to tractor direction only if tangent is missing/zero.
+    const pt=pathPts&&pathPts[i];
+    const fdir=(pt&&(pt.tx||pt.ty))?{x:pt.tx,y:pt.ty}:vnorm(vsub(f.frontAxle,f.pivotAxle));
+    const flft=vleft(fdir);
+    fL.push(vadd(f.frontAxle,vscl(flft,HW)));
+    fR.push(vadd(f.frontAxle,vscl(flft,-HW)));
+    const fb=vadd(f.frontAxle,vscl(fdir,Fo));
+    fOL.push(vadd(fb,vscl(flft,HW)));
+    fOR.push(vadd(fb,vscl(flft,-HW)));
+    // Tractor/pivot rear axle: use tractor body direction (kinematic)
+    const tdir=vnorm(vsub(f.frontAxle,f.pivotAxle));
+    const tlft=vleft(tdir);
+    p1L.push(vadd(f.pivotAxle,vscl(tlft,HW)));
+    p1R.push(vadd(f.pivotAxle,vscl(tlft,-HW)));
+    // Trailer rear axle
+    if(f.trailAxle){
+      const d2=vnorm(vsub(f.pivotAxle,f.trailAxle));
+      const l2=vleft(d2);
+      tL.push(vadd(f.trailAxle,vscl(l2,HW)));
+      tR.push(vadd(f.trailAxle,vscl(l2,-HW)));
+    }
+  }
+  return{fOL,fOR,fL,fR,p1L,p1R,tL,tR};
+}
+
+// ══════════════════════════════════════════════════════════════════
+// 9a. SMOOTH a point array with a box-blur (window = w each side)
+function smoothPts(pts, w){
+  const out=[];
+  for(let i=0;i<pts.length;i++){
+    let sx=0,sy=0,n=0;
+    for(let j=Math.max(0,i-w);j<=Math.min(pts.length-1,i+w);j++){sx+=pts[j].x;sy+=pts[j].y;n++;}
+    out.push({x:sx/n,y:sy/n});
+  }
+  return out;
+}
+
+// ══════════════════════════════════════════════════════════════════
+// 9. SWEPT ENVELOPE
+//    At each frame, find the leftmost and rightmost body corners
+//    projected onto the perpendicular of the path tangent.
+// ══════════════════════════════════════════════════════════════════
+function buildSweptEnvelope(frames,veh,ppm,pathPts){
+  const HW=(veh.W/2)*ppm, Fo=veh.Fo*ppm, Ro=veh.Ro*ppm, Fwd=(veh.Fwd||0)*ppm;
+  const leftB=[], rightB=[];
+
+  for(let i=0;i<frames.length;i++){
+    const f=frames[i];
+    // Use path tangent for front corners (same as tracks) so envelope matches.
+    const pt=pathPts&&pathPts[i];
+    const fdir=(pt&&(pt.tx||pt.ty))?{x:pt.tx,y:pt.ty}:vnorm(vsub(f.frontAxle,f.pivotAxle));
+    const flft=vleft(fdir);
+    // Tractor direction for rear corners
+    const tdir=vnorm(vsub(f.frontAxle,f.pivotAxle));
+    const tlft=vleft(tdir);
+
+    const corners=[];
+    const fb=vadd(f.frontAxle,vscl(fdir,Fo));
+    corners.push(vadd(fb,vscl(flft,HW)),vadd(fb,vscl(flft,-HW)));
+
+    if(!f.trailAxle){
+      const rb=vsub(f.pivotAxle,vscl(tdir,Ro));
+      corners.push(vadd(rb,vscl(tlft,HW)),vadd(rb,vscl(tlft,-HW)));
+    } else {
+      corners.push(vadd(f.pivotAxle,vscl(tlft,HW)),vadd(f.pivotAxle,vscl(tlft,-HW)));
+      const d2=vnorm(vsub(f.pivotAxle,f.trailAxle));
+      const l2=vleft(d2);
+      const tf=vadd(f.pivotAxle,vscl(d2,Fwd));
+      corners.push(vadd(tf,vscl(l2,HW)),vadd(tf,vscl(l2,-HW)));
+      const rb=vsub(f.trailAxle,vscl(d2,Ro));
+      corners.push(vadd(rb,vscl(l2,HW)),vadd(rb,vscl(l2,-HW)));
+    }
+
+    // Project onto the path-tangent perpendicular for consistent measurement
+    let mxL=-Infinity,mxR=-Infinity,pL=null,pR=null;
+    for(const c of corners){
+      const proj=vdot(vsub(c,f.frontAxle),flft);
+      if(proj>mxL){mxL=proj;pL=c;}
+      if(-proj>mxR){mxR=-proj;pR=c;}
+    }
+    leftB.push(pL||f.frontAxle);
+    rightB.push(pR||f.frontAxle);
+  }
+  return{leftB,rightB};
+}
+
+// ══════════════════════════════════════════════════════════════════
+// 10. VEHICLE BODY OUTLINE (for display at key positions)
+// ══════════════════════════════════════════════════════════════════
+function renderBodyOutline(frame,veh,ppm,layer){
+  const HW=(veh.W/2)*ppm, Fo=veh.Fo*ppm, Ro=veh.Ro*ppm;
+  const Fwd=(veh.Fwd||0)*ppm;
+  const col=veh.color;
+  const dir=vnorm(vsub(frame.frontAxle,frame.pivotAxle));
+  const lft=vleft(dir);
+
+  function axleLine(pt,d){
+    const l=vleft(d);
+    layer.add(new Konva.Line({points:flat([vadd(pt,vscl(l,HW)),vadd(pt,vscl(l,-HW))]),stroke:col,strokeWidth:1.2,listening:false}));
+  }
+  function wheelDot(pt){ layer.add(new Konva.Circle({x:pt.x,y:pt.y,radius:2.5,fill:col,listening:false})); }
+  function box(pts,fillAlpha){
+    layer.add(new Konva.Line({points:flat(pts),closed:true,stroke:col,strokeWidth:1.5,fill:col+fillAlpha,dash:[3,2],listening:false}));
+  }
+
+  const fb=vadd(frame.frontAxle,vscl(dir,Fo));
+
+  if(!frame.trailAxle){
+    const rb=vsub(frame.pivotAxle,vscl(dir,Ro));
+    box([vadd(fb,vscl(lft,HW)),vadd(fb,vscl(lft,-HW)),vadd(rb,vscl(lft,-HW)),vadd(rb,vscl(lft,HW))],'20');
+    axleLine(frame.frontAxle,dir);
+    axleLine(frame.pivotAxle,dir);
+    // Wheel dots at axle ends
+    [vadd(frame.frontAxle,vscl(lft,HW)),vadd(frame.frontAxle,vscl(lft,-HW)),
+     vadd(frame.pivotAxle,vscl(lft,HW)),vadd(frame.pivotAxle,vscl(lft,-HW))].forEach(wheelDot);
+  } else {
+    // Tractor cab
+    const tractorRear=frame.pivotAxle;
+    box([vadd(fb,vscl(lft,HW)),vadd(fb,vscl(lft,-HW)),
+         vadd(tractorRear,vscl(lft,-HW)),vadd(tractorRear,vscl(lft,HW))],'20');
+
+    // Trailer body
+    const d2=vnorm(vsub(frame.pivotAxle,frame.trailAxle));
+    const l2=vleft(d2);
+    const tf=vadd(frame.pivotAxle,vscl(d2,Fwd));
+    const rb=vsub(frame.trailAxle,vscl(d2,Ro));
+    box([vadd(tf,vscl(l2,HW)),vadd(tf,vscl(l2,-HW)),
+         vadd(rb,vscl(l2,-HW)),vadd(rb,vscl(l2,HW))],'18');
+
+    // Axle lines
+    axleLine(frame.frontAxle,dir);
+    axleLine(frame.pivotAxle,dir);
+    axleLine(frame.trailAxle,d2);
+
+    // Wheel dots
+    [vadd(frame.frontAxle,vscl(lft,HW)),vadd(frame.frontAxle,vscl(lft,-HW)),
+     vadd(frame.pivotAxle,vscl(lft,HW)),vadd(frame.pivotAxle,vscl(lft,-HW)),
+     vadd(frame.trailAxle,vscl(l2,HW)),vadd(frame.trailAxle,vscl(l2,-HW))].forEach(wheelDot);
+
+    // 5th-wheel marker
+    layer.add(new Konva.Circle({x:frame.pivotAxle.x,y:frame.pivotAxle.y,radius:4,stroke:col,strokeWidth:1.5,fill:'transparent',listening:false}));
+    layer.add(new Konva.Circle({x:frame.pivotAxle.x,y:frame.pivotAxle.y,radius:1.5,fill:col,listening:false}));
+  }
+}
+
+// Select display positions: first, arc midpoints, last
+function getBodyDisplayFrames(pathPts,frames){
+  if(!frames||frames.length<2) return [];
+  const n=frames.length, sel=new Set([0,n-1]);
+  let inArc=false, arcS=0;
+  for(let i=0;i<pathPts.length;i++){
+    const on=pathPts[i].curvR>1;
+    if(on&&!inArc){inArc=true;arcS=i;}
+    if(!on&&inArc){sel.add(Math.floor((arcS+i-1)/2));inArc=false;}
+  }
+  if(inArc) sel.add(Math.floor((arcS+n-1)/2));
+  if(sel.size===2&&n>8){sel.add(Math.floor(n/3));sel.add(Math.floor(2*n/3));}
+  return[...sel].sort((a,b)=>a-b).map(i=>frames[Math.min(i,n-1)]);
+}
+
+// ══════════════════════════════════════════════════════════════════
+// 10b. AASHTO SPEED / RADIUS CHECK
+// ══════════════════════════════════════════════════════════════════
+// Side friction factors from AASHTO Green Book Table 3-7
+const AASHTO_FRICTION=[
+  [15,0.40],[20,0.35],[25,0.30],[30,0.28],[35,0.26],
+  [40,0.24],[45,0.22],[50,0.20],[55,0.18],[60,0.15],
+  [65,0.14],[70,0.13],[75,0.12],[80,0.11],
+];
+function getFriction(vMph){
+  if(vMph<=AASHTO_FRICTION[0][0]) return AASHTO_FRICTION[0][1];
+  if(vMph>=AASHTO_FRICTION[AASHTO_FRICTION.length-1][0]) return AASHTO_FRICTION[AASHTO_FRICTION.length-1][1];
+  for(let i=0;i<AASHTO_FRICTION.length-1;i++){
+    const[v0,f0]=AASHTO_FRICTION[i],[v1,f1]=AASHTO_FRICTION[i+1];
+    if(vMph>=v0&&vMph<=v1){
+      const t=(vMph-v0)/(v1-v0);
+      return f0+t*(f1-f0);
+    }
+  }
+  return 0.15;
+}
+// Returns AASHTO min safe radius in METERS for given speed (mph) and e_max
+function aashtoMinRadius(vMph,eMax){
+  if(vMph<2) return 0;
+  const f=getFriction(vMph);
+  const R_ft=(vMph*vMph)/(15*(eMax+f));
+  return R_ft; // feet — internal unit
+}
+// 'ok' = safe at speed | 'speed' = exceeds AASHTO (driveable but marginal) | 'geometry' = below vehicle Rmin
+function curveStatus(radiusM,veh){
+  if(radiusM<=0) return 'geometry';
+  if(radiusM<veh.Rmin) return 'geometry';
+  if(S.speedCheckOn){
+    const minR=aashtoMinRadius(S.designSpeed,S.eMax);
+    if(radiusM<minR) return 'speed';
+  }
+  return 'ok';
+}
+function toggleReverse(){
+  S.reverse=!S.reverse;
+  const btn=document.getElementById('btn-reverse');
+  const revP=document.getElementById('rev-params');
+  const spdC=document.getElementById('spd-controls');
+  if(S.reverse){
+    btn.style.background='#431407'; btn.style.color='#fb923c'; btn.style.borderColor='#c2410c';
+    btn.innerHTML=btn.innerHTML.replace('Reverse','◀ Reverse');
+    revP.style.display='block';
+    // Grey out forward speed controls — they don't apply to reverse
+    spdC.style.opacity='0.4'; spdC.style.pointerEvents='none';
+  } else {
+    btn.style.background=''; btn.style.color=''; btn.style.borderColor='';
+    btn.innerHTML=btn.innerHTML.replace('◀ Reverse','Reverse');
+    revP.style.display='none';
+    spdC.style.opacity='1'; spdC.style.pointerEvents='auto';
+    // Clear articulation display
+    const aa=document.getElementById('rev-artangle');
+    aa.style.display='none';
+  }
+  render();
+}
+function onReverseSpeedChange(v){
+  S.reverseSpeed=Number(v);
+  document.getElementById('rev-spd-val').textContent=`${S.reverseSpeed} mph`;
+  render();
+}
+// Check reverse-specific constraints: jackknife risk for articulated vehicles.
+// Returns {possible, maxAngleDeg, reason}
+function checkReverseConstraints(frames,veh){
+  const MAX_ARTIC=75; // degrees — beyond this jackknife is unrecoverable
+  if(!frames||frames.length<2||veh.L2<=0) return{possible:true,maxAngleDeg:0,reason:null};
+  let maxAngle=0;
+  for(const f of frames){
+    if(!f.trailAxle) continue;
+    const tractorDir=vnorm(vsub(f.frontAxle,f.pivotAxle));
+    const trailerDir=vnorm(vsub(f.pivotAxle,f.trailAxle));
+    const dot=Math.max(-1,Math.min(1,vdot(tractorDir,trailerDir)));
+    const angle=Math.acos(dot)*180/Math.PI;
+    if(angle>maxAngle) maxAngle=angle;
+  }
+  const possible=maxAngle<=MAX_ARTIC;
+  return{
+    possible,
+    maxAngleDeg:maxAngle,
+    reason:possible?null:`Jackknife risk: articulation angle ${maxAngle.toFixed(0)}° exceeds safe limit of ${MAX_ARTIC}°`
+  };
+}
+function updateReverseAngleDisplay(rc,veh){
+  const el=document.getElementById('rev-artangle');
+  if(veh.L2<=0){el.style.display='none';return;}
+  el.style.display='block';
+  const a=rc.maxAngleDeg;
+  const color=a>75?'#ef4444':a>55?'#f59e0b':'#22c55e';
+  const bg=a>75?'rgba(127,29,29,.5)':a>55?'rgba(120,53,15,.4)':'rgba(20,83,45,.4)';
+  const status=a>75?'⛔ JACKKNIFE — path blocked':a>55?'⚠ High articulation — reduce speed':'✔ Articulation OK';
+  el.style.background=bg;
+  el.style.border=`1px solid ${color}`;
+  el.innerHTML=`<div style="color:${color};font-weight:700">${status}</div>`+
+    `<div style="color:#9ca3af">Max articulation: <span style="color:${color};font-weight:600">${a.toFixed(0)}°</span> (limit: 75°)</div>`+
+    (a<=75?`<div style="color:#6b7280">Reverse speed: ${S.reverseSpeed} mph</div>`:'');
+}
+function toggleSpeedCheck(){
+  S.speedCheckOn=!S.speedCheckOn;
+  const btn=document.getElementById('spd-toggle');
+  const ctrl=document.getElementById('spd-controls');
+  if(S.speedCheckOn){
+    btn.textContent='ON';
+    btn.style.borderColor='#22c55e';btn.style.background='#14532d';btn.style.color='#22c55e';
+    ctrl.style.display='block';
+  } else {
+    btn.textContent='OFF';
+    btn.style.borderColor='#374151';btn.style.background='transparent';btn.style.color='#6b7280';
+    ctrl.style.display='none';
+  }
+  render();
+}
+const STATUS_COLOR={ok:'#22c55e',speed:'#f59e0b',geometry:'#ef4444'};
+const STATUS_LABEL={
+  ok:'✔ Safe at design speed',
+  speed:'⚠ Exceeds AASHTO min R — reduce speed',
+  geometry:'✖ Below vehicle steering limit',
+};
+function onSpeedChange(v){
+  S.designSpeed=Number(v);
+  S.eMax=Number(document.getElementById('emax-sel').value);
+  document.getElementById('spd-val').textContent=`${S.designSpeed} mph`;
+
+  const aashtoR=aashtoMinRadius(S.designSpeed,S.eMax);
+  const vehR=S.vehicle.Rmin;
+  const effR=Math.max(aashtoR,vehR);
+  const governs=vehR>=aashtoR?'vehicle steering limit':'AASHTO speed formula';
+
+  const fmt=ft=>`${ft.toFixed(0)} ft`;
+
+  document.getElementById('spd-minR').textContent=fmt(aashtoR);
+  document.getElementById('spd-vehR').textContent=fmt(vehR);
+  document.getElementById('spd-effR').textContent=fmt(effR);
+  document.getElementById('spd-governs').textContent=`governed by ${governs}`;
+  render();
+}
+function updateSpeedPanel(){
+  onSpeedChange(S.designSpeed);
+}
+
+// ══════════════════════════════════════════════════════════════════
+// 11. RENDERING
+// ══════════════════════════════════════════════════════════════════
+function addLine(layer,pts,color,width,dash){
+  if(!pts||pts.length<2) return;
+  const ln=new Konva.Line({points:flat(pts),stroke:color,strokeWidth:width,listening:false});
+  if(dash) ln.dash(dash);
+  layer.add(ln);
+}
+
+// Estimate a default pixels-per-foot based on path bounding box
+// so vehicles look proportional even before calibration.
+function estimatePpm(pathPts){
+  if(pathPts.length<2) return 2.4;
+  let minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
+  for(const p of pathPts){minX=Math.min(minX,p.x);maxX=Math.max(maxX,p.x);minY=Math.min(minY,p.y);maxY=Math.max(maxY,p.y);}
+  const span=Math.max(maxX-minX,maxY-minY,50);
+  // Target: WB-20 (73.5 ft) occupies ~30% of path span; floor at 2.4 px/ft
+  return Math.max(span*0.30/73.5, 2.4);
+}
+
+// Add a small label at the end of a track array
+function trackLabel(layer,pts,text,col){
+  if(!pts||pts.length<2) return;
+  const p=pts[pts.length-1], p2=pts[pts.length-2];
+  const dx=p.x-p2.x, dy=p.y-p2.y, l=Math.sqrt(dx*dx+dy*dy)||1;
+  const nx=dx/l*6, ny=dy/l*6;
+  const lbl=new Konva.Label({x:p.x+nx,y:p.y+ny-6,listening:false,opacity:.9});
+  lbl.add(new Konva.Tag({fill:'rgba(17,24,39,.82)',cornerRadius:3}));
+  lbl.add(new Konva.Text({text,fontSize:9,fill:col,padding:2}));
+  layer.add(lbl);
+}
+
+function render(){
+  mainLayer.destroyChildren();
+  swLayer.destroyChildren();
+
+  const vs=S.vertices;
+  if(vs.length<1){mainLayer.batchDraw();swLayer.batchDraw();return;}
+
+  // ALWAYS run kinematic simulation — use calibrated scale if set,
+  // otherwise estimate from path size so vehicle proportions are real.
+  // This ensures different vehicles ALWAYS show different wheel tracks.
+  const pathPtsRaw=computePathPoints(vs,vs.map(()=>null));
+  // Lock the estimated ppm once the path bounding box is large enough (>200px).
+  // After that, adding more nodes never changes the visual scale.
+  if(!S.estPpm){
+    let minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
+    for(const p of pathPtsRaw){minX=Math.min(minX,p.x);maxX=Math.max(maxX,p.x);minY=Math.min(minY,p.y);maxY=Math.max(maxY,p.y);}
+    const span=Math.max(maxX-minX,maxY-minY,0);
+    if(span>200) S.estPpm=estimatePpm(pathPtsRaw);
+  }
+  const effectivePpm = S.ppm || S.estPpm || 8;
+
+  const curves=vs.map((v,i)=>{
+    if(i===0||i===vs.length-1||v.radius<=0) return null;
+    return computeCurve(vs[i-1],v,vs[i+1],v.radius*effectivePpm);
+  });
+
+  const pathPts=computePathPoints(vs,curves);
+  if(pathPts.length<2){mainLayer.batchDraw();swLayer.batchDraw();return;}
+
+  const col=S.vehicle.color;
+  // Reverse: orange palette so forward and reverse are visually distinct
+  const revCol='#fb923c';
+  const drawCol=S.reverse?revCol:col;
+  const showFill  =document.getElementById('opt-fill').checked;
+  const showTracks=document.getElementById('opt-tracks').checked;
+  const showBody  =document.getElementById('opt-body').checked;
+  const showRadii =document.getElementById('opt-radii').checked;
+
+  // ── Reverse path: flip point order + tangent direction ────────
+  // Reversing tangents is critical for articulated vehicles so wheel
+  // tracks and envelope follow the correct axle geometry in reverse.
+  const simPath=S.reverse
+    ? [...pathPts].reverse().map(p=>({...p,tx:-p.tx,ty:-p.ty}))
+    : pathPts;
+
+  // ── Sharp corner check ────────────────────────────────────────
+  const cornerCheck=checkSharpCorners();
+  if(!cornerCheck.ok){
+    document.getElementById('min-warn').style.display='none';
+    // Red banner
+    const cLbl=new Konva.Label({x:8,y:8,listening:false,opacity:.97});
+    cLbl.add(new Konva.Tag({fill:'rgba(127,29,29,.93)',cornerRadius:5,stroke:'#ef4444',strokeWidth:1}));
+    cLbl.add(new Konva.Text({
+      text:`⛔  Sharp corner at node ${cornerCheck.badIndex+1} — ${S.vehicle.code} cannot make this turn\n    Set a curve radius on this node  ·  Deflection: ${cornerCheck.deflectionDeg.toFixed(0)}°`,
+      fontSize:12,fontStyle:'bold',fill:'#fca5a5',padding:7,lineHeight:1.6
+    }));
+    mainLayer.add(cLbl);
+    // Draw vertices only — highlight the bad node in red
+    vs.forEach((v,i)=>{
+      const isBad=(i===cornerCheck.badIndex);
+      const c=new Konva.Circle({
+        x:v.x,y:v.y,radius:isBad?10:6,
+        fill:isBad?'#ef4444':'#1d4ed8',
+        stroke:'#fff',strokeWidth:isBad?2.5:1.5,listening:false
+      });
+      mainLayer.add(c);
+      if(isBad){
+        // Pulsing ring around bad node
+        mainLayer.add(new Konva.Circle({x:v.x,y:v.y,radius:18,stroke:'#ef4444',strokeWidth:1.5,dash:[4,3],fill:'transparent',listening:false}));
+      }
+      mainLayer.add(new Konva.Text({x:v.x+10,y:v.y-8,text:String(i+1),fontSize:10,fill:isBad?'#ef4444':'#6b7280',listening:false}));
+    });
+    mainLayer.batchDraw(); swLayer.batchDraw();
+    updateVehicleStates();
+    return;
+  }
+
+  // ── Physical possibility check ────────────────────────────────
+  // In reverse: Rmin is a forward steering limit — skip it.
+  // Jackknife detection handles the real reverse constraint.
+  const minCurveR=getMinCurveRadius();
+  const pathImpossible=!S.reverse && minCurveR<Infinity && S.vehicle.Rmin>minCurveR;
+
+  if(!pathImpossible){
+    // ── Kinematic simulation ──────────────────────────────────────
+    const frames=simulateAxles(simPath,S.vehicle,effectivePpm);
+
+    // ── Reverse constraint check (jackknife for articulated vehicles)
+    let reverseBlocked=false, reverseBlockReason='';
+    if(S.reverse){
+      const rc=checkReverseConstraints(frames,S.vehicle);
+      updateReverseAngleDisplay(rc,S.vehicle);
+      if(!rc.possible){reverseBlocked=true;reverseBlockReason=rc.reason;}
+    }
+
+    if(reverseBlocked){
+      // Jackknife — show blocked state (nodes + radius annotations only)
+      document.getElementById('min-warn').style.display='none';
+      const jkLbl=new Konva.Label({x:8,y:8,listening:false,opacity:.97});
+      jkLbl.add(new Konva.Tag({fill:'rgba(127,29,29,.93)',cornerRadius:5,stroke:'#ef4444',strokeWidth:1}));
+      jkLbl.add(new Konva.Text({
+        text:`⛔  JACKKNIFE RISK — ${S.vehicle.code} reverse blocked\n    ${reverseBlockReason}\n    Increase curve radius or shorten the backing distance`,
+        fontSize:12,fontStyle:'bold',fill:'#fca5a5',padding:7,lineHeight:1.6
+      }));
+      mainLayer.add(jkLbl);
+    } else {
+
+    // 1. Swept envelope fill
+    if(showFill){
+      const env=buildSweptEnvelope(frames,S.vehicle,effectivePpm,simPath);
+      const poly=flat([...env.leftB,...[...env.rightB].reverse()]);
+      if(poly.length>=6){
+        swLayer.add(new Konva.Line({
+          points:poly,closed:true,
+          fill:drawCol+'28',stroke:drawCol+'55',strokeWidth:1,
+          dash:S.reverse?[6,3]:undefined,listening:false
+        }));
+      }
+    }
+
+    // 2. Wheel / body-corner tracks
+    if(showTracks){
+      const tr=computeWheelTracks(frames,S.vehicle,effectivePpm,simPath);
+      addLine(swLayer,tr.fOL,drawCol,1.2,[5,3]);
+      addLine(swLayer,tr.fOR,drawCol,1.2,[5,3]);
+      trackLabel(swLayer,tr.fOL,S.reverse?'Rear overhang (rev)':'Front overhang',drawCol);
+      addLine(swLayer,tr.fL,drawCol,2.0);
+      addLine(swLayer,tr.fR,drawCol,2.0);
+      trackLabel(swLayer,tr.fL,S.reverse?'Rear wheel L (rev)':'Front wheel L',drawCol);
+      trackLabel(swLayer,tr.fR,S.reverse?'Rear wheel R (rev)':'Front wheel R',drawCol);
+      const c1=drawCol+'bb';
+      addLine(swLayer,tr.p1L,c1,1.5,[4,3]);
+      addLine(swLayer,tr.p1R,c1,1.5,[4,3]);
+      trackLabel(swLayer,tr.p1L,S.vehicle.L2>0?'Tractor rear L':'Rear axle L',c1);
+      trackLabel(swLayer,tr.p1R,S.vehicle.L2>0?'Tractor rear R':'Rear axle R',c1);
+      if(tr.tL.length>0){
+        const tCol=S.reverse?'#fb923c':'#fbbf24';
+        addLine(swLayer,tr.tL,tCol,2.2);
+        addLine(swLayer,tr.tR,tCol,2.2);
+        trackLabel(swLayer,tr.tL,S.reverse?'Trailer front L (rev)':'Trailer rear L',tCol);
+        trackLabel(swLayer,tr.tR,S.reverse?'Trailer front R (rev)':'Trailer rear R',tCol);
+      }
+    }
+
+    // 3. Vehicle body outlines
+    if(showBody){
+      const dispFrames=getBodyDisplayFrames(simPath,frames);
+      dispFrames.forEach(f=>renderBodyOutline(f,S.vehicle,effectivePpm,mainLayer));
+    }
+
+    // Min-radius warning
+    document.getElementById('min-warn').style.display='none';
+
+    // Notices
+    const noticeY=S.reverse?30:8;
+    if(!S.ppm){
+      mainLayer.add(new Konva.Text({
+        x:8,y:noticeY,
+        text:'⚠ Set scale for accurate dimensions — proportions are relative',
+        fontSize:11,fill:'#f59e0b',listening:false,opacity:.85,
+      }));
+    }
+    if(S.reverse){
+      // Reverse mode banner with live speed
+      const revLbl=new Konva.Label({x:8,y:8,listening:false,opacity:.97});
+      revLbl.add(new Konva.Tag({fill:'rgba(124,45,18,.92)',cornerRadius:5,stroke:'#fb923c',strokeWidth:1}));
+      revLbl.add(new Konva.Text({
+        text:`◀ REVERSE  —  ${S.vehicle.code}  @  ${S.reverseSpeed} mph  |  Max 15 mph operational`,
+        fontSize:11,fontStyle:'bold',fill:'#fed7aa',padding:5
+      }));
+      mainLayer.add(revLbl);
+    }
+
+    // ── Centerline ───────────────────────────────────────────────
+    const clStroke=S.reverse?'#fb923c':'#60a5fa';
+    mainLayer.add(new Konva.Line({points:flat(pathPts),stroke:clStroke,strokeWidth:1.8,dash:[9,6],listening:false}));
+    if(S.reverse){
+      const step=Math.max(1,Math.floor(pathPts.length/6));
+      for(let i=step;i<pathPts.length-1;i+=step){
+        const p=pathPts[i],p2=pathPts[i-1];
+        const dx=p2.x-p.x,dy=p2.y-p.y,dl=Math.sqrt(dx*dx+dy*dy)||1;
+        const nx=dx/dl,ny=dy/dl,aw=5,al=10;
+        mainLayer.add(new Konva.Line({
+          points:[p.x,p.y,p.x-nx*al+ny*aw,p.y-ny*al-nx*aw,p.x-nx*al-ny*aw,p.y-ny*al+nx*aw],
+          closed:true,fill:'#fb923c',listening:false,opacity:.8
+        }));
+      }
+    }
+
+    } // end !reverseBlocked
+  } else {
+    // ── Path blocked: vehicle cannot physically make this turn ───
+    document.getElementById('min-warn').style.display='none';
+    const needed=dispLen(S.vehicle.Rmin);
+    const drawn=dispLen(minCurveR);
+    // Red banner at top of canvas
+    const bannerLbl=new Konva.Label({x:8,y:8,listening:false,opacity:.97});
+    bannerLbl.add(new Konva.Tag({fill:'rgba(127,29,29,.93)',cornerRadius:5,stroke:'#ef4444',strokeWidth:1}));
+    bannerLbl.add(new Konva.Text({
+      text:`⛔  ${S.vehicle.code} cannot make this turn\n    Needs min R ${needed} ft  ·  Tightest curve is ${drawn} ft`,
+      fontSize:12,fontStyle:'bold',fill:'#fca5a5',padding:7,lineHeight:1.6
+    }));
+    mainLayer.add(bannerLbl);
+  }
+
+  // ── Radius circles, centerlines & speed-check dimensions ────────
+  if(showRadii){
+    curves.forEach((curve,i)=>{
+      if(!curve) return;
+      const v=vs[i];
+      const cx=curve.center.x, cy=curve.center.y;
+      const status=curveStatus(v.radius,S.vehicle);
+      const col=STATUS_COLOR[status];
+
+      // Dashed arc circle — colored by status
+      mainLayer.add(new Konva.Circle({x:cx,y:cy,radius:curve.R,stroke:col,strokeWidth:1.2,dash:[6,4],listening:false,opacity:.7}));
+
+      // ── Arc midpoint ──────────────────────────────────────────
+      const bcA=Math.atan2(curve.bc.y-cy,curve.bc.x-cx);
+      const ecA=Math.atan2(curve.ec.y-cy,curve.ec.x-cx);
+      let mid=(bcA+ecA)/2;
+      if(curve.isLeft){if(bcA-ecA<0)mid+=Math.PI;}else{if(ecA-bcA<0)mid+=Math.PI;}
+      const ax=cx+curve.R*Math.cos(mid), ay=cy+curve.R*Math.sin(mid);
+
+      // ── Center-of-curvature cross mark ───────────────────────
+      const cs=7;
+      mainLayer.add(new Konva.Line({points:[cx-cs,cy,cx+cs,cy],stroke:col,strokeWidth:1.2,listening:false,opacity:.85}));
+      mainLayer.add(new Konva.Line({points:[cx,cy-cs,cx,cy+cs],stroke:col,strokeWidth:1.2,listening:false,opacity:.85}));
+      mainLayer.add(new Konva.Circle({x:cx,y:cy,radius:2.5,fill:col,listening:false,opacity:.85}));
+
+      // ── Radius dimension line (center → arc) ─────────────────
+      mainLayer.add(new Konva.Line({points:[cx,cy,ax,ay],stroke:col,strokeWidth:1.3,dash:[7,4],listening:false,opacity:.9}));
+
+      // Arrowhead at arc end
+      const dx=ax-cx, dy=ay-cy, dlen=Math.sqrt(dx*dx+dy*dy)||1;
+      const nx=dx/dlen, ny=dy/dlen;
+      const aw=5, al=11;
+      const bx=ax-nx*al, by=ay-ny*al;
+      mainLayer.add(new Konva.Line({
+        points:[ax,ay, bx+ny*aw,by-nx*aw, bx-ny*aw,by+nx*aw],
+        closed:true,fill:col,stroke:col,strokeWidth:0.5,listening:false,opacity:.9
+      }));
+
+      // Tick mark at center end
+      mainLayer.add(new Konva.Line({points:[cx+ny*4,cy-nx*4,cx-ny*4,cy+nx*4],stroke:col,strokeWidth:1.5,listening:false,opacity:.8}));
+
+      // ── Dimension label ───────────────────────────────────────
+      const mx2=(cx+ax)/2, my2=(cy+ay)/2;
+      const offX=ny*14, offY=-nx*14;
+      // Line 1: radius value
+      const minR=aashtoMinRadius(S.designSpeed,S.eMax);
+      const line1=`R = ${dispLen(v.radius)} ft`;
+      // Line 2: speed status (show required radius when not ok)
+      const line2=status==='ok'
+        ?`✔ OK @ ${S.designSpeed} mph`
+        :status==='speed'
+          ?`⚠ Need ${minR.toFixed(0)} ft @ ${S.designSpeed} mph`
+          :`✖ Below veh. min ${dispLen(S.vehicle.Rmin)} ft`;
+      const lbl=new Konva.Label({x:mx2+offX,y:my2+offY-10,listening:false,opacity:.97});
+      lbl.add(new Konva.Tag({fill:'rgba(10,15,25,.93)',cornerRadius:3,stroke:col,strokeWidth:.7}));
+      lbl.add(new Konva.Text({
+        text:line1+'\n'+line2,
+        fontSize:10,fontStyle:'bold',fill:col,padding:3,lineHeight:1.5
+      }));
+      mainLayer.add(lbl);
+    });
+  }
+
+  // ── Vertex circles ──────────────────────────────────────────────
+  vs.forEach((v,i)=>{
+    const isSel=v.id===S.selId, isEnd=i===0||i===vs.length-1;
+    const hasCurv=!!(curves[i]);
+    const c=new Konva.Circle({
+      x:v.x,y:v.y,radius:isSel?9:7,
+      fill:isSel?'#dc2626':(isEnd?'#4ade80':(hasCurv?'#a78bfa':'#60a5fa')),
+      stroke:'#fff',strokeWidth:1.5,
+      draggable:S.mode==='select',id:v.id,hitStrokeWidth:12,
+    });
+    c.on('click tap',()=>{if(S.mode==='select'){S.selId=v.id;updatePropPanel();render();}});
+    c.on('dragmove',e=>{
+      v.x=e.target.x();v.y=e.target.y();
+      if(S.aerial&&S.leaflet){const ll=S.leaflet.containerPointToLatLng([v.x,v.y]);v.lat=ll.lat;v.lng=ll.lng;}
+      render();
+    });
+    mainLayer.add(c);
+    mainLayer.add(new Konva.Text({x:v.x+10,y:v.y-8,text:String(i+1),fontSize:10,fill:'#6b7280',listening:false}));
+  });
+
+  mainLayer.batchDraw();
+  swLayer.batchDraw();
+  updateVehicleStates();
+}
+
+// ── Helpers for physical constraint enforcement ───────────────────
+
+// Check for sharp corners (radius=0) with significant direction change.
+// In REVERSE mode: skip entirely — driver controls articulation manually,
+//   jackknife detection is the only active safety check.
+// In FORWARD mode:
+//   Rigid vehicles  (L2=0): block at >75°
+//   Articulated (L2>0): block at >45° — trailer cannot follow very sharp bends
+// Returns {ok, badIndex, deflectionDeg}
+function checkSharpCorners(){
+  if(S.reverse) return{ok:true,badIndex:-1,deflectionDeg:0}; // no forward restrictions in reverse
+  const vs=S.vertices;
+  const isArtic=S.vehicle.L2>0;
+  const threshold=isArtic?45:75;
+  for(let i=1;i<vs.length-1;i++){
+    if(vs[i].radius>0) continue;
+    const a=vs[i-1], b=vs[i], c=vs[i+1];
+    const d1=vnorm(vsub(b,a));
+    const d2=vnorm(vsub(c,b));
+    const dot=Math.max(-1,Math.min(1,vdot(d1,d2)));
+    const deg=Math.acos(dot)*180/Math.PI;
+    if(deg>threshold) return{ok:false,badIndex:i,deflectionDeg:deg};
+  }
+  return{ok:true,badIndex:-1,deflectionDeg:0};
+}
+
+// Returns tightest non-zero curve radius (ft) across all interior vertices.
+// Returns Infinity when no curves are set (no constraint active).
+function getMinCurveRadius(){
+  let minR=Infinity;
+  const vs=S.vertices;
+  for(let i=1;i<vs.length-1;i++){
+    if(vs[i].radius>0) minR=Math.min(minR,vs[i].radius);
+  }
+  return minR;
+}
+
+// Grey out / lock vehicles whose Rmin exceeds the tightest drawn curve.
+function updateVehicleStates(){
+  const minR=getMinCurveRadius();
+  const hasCurves=minR<Infinity;
+  VEHICLES.forEach(veh=>{
+    const el=document.getElementById(`vi-${veh.id}`);
+    if(!el) return;
+    const blocked=hasCurves && veh.Rmin>minR;
+    el.style.opacity=blocked?'0.32':'1';
+    el.style.pointerEvents=blocked?'none':'auto';
+    el.style.filter=blocked?'grayscale(60%)':'none';
+    el.title=blocked
+      ?`⛔ ${veh.code} needs min R ${dispLen(veh.Rmin)} ft — tightest curve is only ${dispLen(minR)} ft`
+      :'';
+    // Lock badge
+    let badge=el.querySelector('.v-lock');
+    if(blocked&&!badge){
+      badge=document.createElement('span');
+      badge.className='v-lock';
+      badge.textContent='⛔';
+      badge.style.cssText='font-size:10px;flex-shrink:0;margin-left:4px;opacity:.8';
+      el.appendChild(badge);
+    } else if(!blocked&&badge){
+      badge.remove();
+    }
+  });
+}
+
+// ══════════════════════════════════════════════════════════════════
+// 11b. KML / KMZ IMPORT (reference geometry)
+// ══════════════════════════════════════════════════════════════════
+function triggerKMLLoad(){
+  document.getElementById('kml-file').value='';
+  document.getElementById('kml-file').click();
+}
+
+function clearKML(){
+  S.kmlFeatures=[];
+  kmlLayer.destroyChildren(); kmlLayer.batchDraw();
+  document.getElementById('btn-kml-clear').style.display='none';
+  document.getElementById('kml-btn-label').textContent='KML In';
+}
+
+async function onKMLSelected(e){
+  const file=e.target.files[0]; if(!file) return;
+  let kmlText='';
+  try{
+    if(file.name.toLowerCase().endsWith('.kmz')){
+      // KMZ = ZIP containing doc.kml
+      const zip=await JSZip.loadAsync(file);
+      // Find the first .kml file inside
+      const kmlFile=Object.values(zip.files).find(f=>f.name.toLowerCase().endsWith('.kml')&&!f.dir);
+      if(!kmlFile){alert('No KML file found inside KMZ.');return;}
+      kmlText=await kmlFile.async('string');
+    } else {
+      kmlText=await file.text();
+    }
+    const features=parseKML(kmlText);
+    if(!features.length){alert('No geometry found in this KML file.');return;}
+    S.kmlFeatures=features;
+    // Auto-enable aerial if not already on
+    if(!S.aerial) toggleAerial();
+    // Center map on KML bounds
+    centerMapOnKML(features);
+    drawKMLFeatures();
+    const n=features.length;
+    document.getElementById('kml-btn-label').textContent=`KML (${n})`;
+    document.getElementById('btn-kml-clear').style.display='';
+    setStatus(`KML loaded — ${n} feature${n===1?'':'s'} shown as reference geometry`);
+  } catch(err){
+    alert('Error reading KML/KMZ: '+err.message);
+  }
+}
+
+function parseKMLCoords(text){
+  return text.trim().split(/\s+/).map(c=>{
+    const parts=c.split(',');
+    const lng=parseFloat(parts[0]), lat=parseFloat(parts[1]);
+    return (isNaN(lat)||isNaN(lng))?null:{lat,lng};
+  }).filter(Boolean);
+}
+
+// Decimate a coords array to at most maxPts points (keeps first + last)
+function decimateCoords(coords, maxPts=300){
+  if(coords.length<=maxPts) return coords;
+  const step=coords.length/maxPts;
+  const out=[];
+  for(let i=0;i<maxPts-1;i++) out.push(coords[Math.round(i*step)]);
+  out.push(coords[coords.length-1]);
+  return out;
+}
+
+function parseKML(xmlText){
+  const doc=new DOMParser().parseFromString(xmlText,'text/xml');
+  const features=[];
+  const MAX_FEATURES=300;
+  const placemarks=Array.from(doc.querySelectorAll('Placemark'));
+  for(const pm of placemarks){
+    if(features.length>=MAX_FEATURES) break;
+    const name=pm.querySelector('name')?.textContent?.trim()||'';
+    // LineString
+    for(const el of pm.querySelectorAll('LineString')){
+      if(features.length>=MAX_FEATURES) break;
+      const raw=parseKMLCoords(el.querySelector('coordinates')?.textContent||'');
+      const coords=decimateCoords(raw);
+      if(coords.length>1) features.push({type:'line',coords,name});
+    }
+    // MultiGeometry LineStrings
+    for(const el of pm.querySelectorAll('MultiGeometry LineString')){
+      if(features.length>=MAX_FEATURES) break;
+      const raw=parseKMLCoords(el.querySelector('coordinates')?.textContent||'');
+      const coords=decimateCoords(raw);
+      if(coords.length>1) features.push({type:'line',coords,name});
+    }
+    // Polygon outer ring
+    for(const el of pm.querySelectorAll('Polygon')){
+      if(features.length>=MAX_FEATURES) break;
+      const raw=parseKMLCoords(el.querySelector('outerBoundaryIs coordinates,LinearRing coordinates')?.textContent||'');
+      const coords=decimateCoords(raw);
+      if(coords.length>2) features.push({type:'polygon',coords,name});
+    }
+    // Point
+    for(const el of pm.querySelectorAll('Point')){
+      if(features.length>=MAX_FEATURES) break;
+      const coords=parseKMLCoords(el.querySelector('coordinates')?.textContent||'');
+      if(coords.length>0) features.push({type:'point',coords:coords[0],name});
+    }
+  }
+  return features;
+}
+
+function centerMapOnKML(features){
+  if(!S.leaflet) return;
+  const allLat=[], allLng=[];
+  features.forEach(f=>{
+    const pts=f.type==='point'?[f.coords]:f.coords;
+    pts.forEach(p=>{allLat.push(p.lat);allLng.push(p.lng);});
+  });
+  if(!allLat.length) return;
+  const minLat=Math.min(...allLat), maxLat=Math.max(...allLat);
+  const minLng=Math.min(...allLng), maxLng=Math.max(...allLng);
+  S.leaflet.fitBounds([[minLat,minLng],[maxLat,maxLng]],{padding:[40,40]});
+}
+
+function drawKMLFeatures(){
+  kmlLayer.destroyChildren();
+  if(!S.leaflet||!S.kmlFeatures.length){kmlLayer.batchDraw();return;}
+  const LINE_COL='#67e8f9', POLY_COL='#67e8f9', POLY_FILL='rgba(103,232,249,0.08)';
+  S.kmlFeatures.forEach(f=>{
+    if(f.type==='line'||f.type==='polygon'){
+      const pts=f.coords.flatMap(c=>{
+        const p=S.leaflet.latLngToContainerPoint([c.lat,c.lng]);
+        return [p.x,p.y];
+      });
+      if(pts.length<4) return;
+      const closed=f.type==='polygon';
+      if(closed){
+        kmlLayer.add(new Konva.Line({
+          points:pts, closed:true,
+          fill:POLY_FILL, stroke:POLY_COL, strokeWidth:1.5,
+          dash:[6,4], listening:false, opacity:0.85
+        }));
+      } else {
+        kmlLayer.add(new Konva.Line({
+          points:pts, stroke:LINE_COL, strokeWidth:1.8,
+          dash:[8,5], listening:false, opacity:0.85
+        }));
+      }
+    } else if(f.type==='point'){
+      const p=S.leaflet.latLngToContainerPoint([f.coords.lat,f.coords.lng]);
+      kmlLayer.add(new Konva.Circle({x:p.x,y:p.y,radius:5,fill:LINE_COL,stroke:'#fff',strokeWidth:1,listening:false,opacity:0.9}));
+      if(f.name){
+        const lbl=new Konva.Label({x:p.x+8,y:p.y-8,listening:false,opacity:0.9});
+        lbl.add(new Konva.Tag({fill:'rgba(17,24,39,.8)',cornerRadius:3}));
+        lbl.add(new Konva.Text({text:f.name,fontSize:10,fill:LINE_COL,padding:2}));
+        kmlLayer.add(lbl);
+      }
+    }
+  });
+  kmlLayer.batchDraw();
+}
+
+// ══════════════════════════════════════════════════════════════════
+// 12. AERIAL IMAGERY (Leaflet + ESRI World Imagery)
+// ══════════════════════════════════════════════════════════════════
+function aerialPpm(map){
+  // meters/pixel at current zoom + center latitude → convert to pixels/foot
+  const lat=map.getCenter().lat;
+  const mpp=40075016.686*Math.cos(lat*Math.PI/180)/Math.pow(2,map.getZoom()+8);
+  return 0.3048/mpp; // px/ft (1 ft = 0.3048 m)
+}
+function aerialReproj(){
+  if(!S.leaflet) return;
+  S.vertices.forEach(v=>{
+    if(v.lat!=null){
+      const p=S.leaflet.latLngToContainerPoint([v.lat,v.lng]);
+      v.x=p.x; v.y=p.y;
+    }
+  });
+}
+function reprojectLockedPdf(){
+  if(!S.pdfGeo||!S.pdfOverlay||!S.leaflet) return;
+  const kImg=S.pdfOverlay;
+  const ppm=aerialPpm(S.leaflet);
+  const pt=S.leaflet.latLngToContainerPoint(S.pdfGeo.anchorLatLng);
+  kImg.x(pt.x); kImg.y(pt.y);
+  kImg.scaleX(S.pdfGeo.widthFt*ppm/kImg.width());   // widthFt * px/ft = px
+  kImg.scaleY(S.pdfGeo.heightFt*ppm/kImg.height());
+  pdfLayer.batchDraw();
+}
+function toggleAerial(){
+  S.aerial=!S.aerial;
+  const btn=document.getElementById('btn-aerial');
+  const mapEl=document.getElementById('map-container');
+  if(S.aerial){
+    btn.style.background='#1e3a5f'; btn.style.color='#60a5fa'; btn.style.borderColor='#1d4ed8';
+    mapEl.style.display='block';
+    // Init Leaflet once
+    if(!S.leaflet){
+      S.leaflet=L.map('map-container',{zoomControl:true,scrollWheelZoom:true}).setView([25.775,-80.19],17);
+      L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+        {attribution:'Imagery &copy; Esri',maxZoom:21,maxNativeZoom:19,crossOrigin:true}).addTo(S.leaflet);
+      // When map moves: reproject vertices and re-render
+      S.leaflet.on('moveend zoomend',()=>{
+        S.ppm=aerialPpm(S.leaflet);
+        S.estPpm=null;
+        updateScaleDisplay();
+        aerialReproj();
+        reprojectLockedPdf();
+        drawKMLFeatures();
+        render();
+      });
+    }
+    // Freeze Konva transform — Leaflet owns pan/zoom
+    stage.scale({x:1,y:1}); stage.position({x:0,y:0});
+    stage.draggable(false);
+    S.ppm=aerialPpm(S.leaflet);
+    S.estPpm=null;
+    updateScaleDisplay();
+    // Hide PDF bg
+    bgLayer.destroyChildren(); bgLayer.batchDraw();
+    render();
+    setStatus('Aerial mode — pan/zoom the map, then Draw your path');
+  } else {
+    btn.style.background=''; btn.style.color=''; btn.style.borderColor='';
+    mapEl.style.display='none';
+    pdfLayer.destroyChildren(); pdfLayer.batchDraw();
+    S.pdfOverlay=null; S.pdfXformer=null; S.pdfGeo=null;
+    document.getElementById('overlay-panel').style.display='none';
+    // Restore manual scale/ppm
+    S.ppm=null; S.estPpm=null;
+    // Hide KML geometry (it's geo-referenced, meaningless without aerial)
+    kmlLayer.destroyChildren(); kmlLayer.batchDraw();
+    updateScaleDisplay();
+    render();
+    setStatus('Aerial off — load a PDF background or draw on blank canvas');
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// 12b. COORDINATE HELPERS & STAGE EVENTS
+// ══════════════════════════════════════════════════════════════════
+const toWorld=sp=>({x:(sp.x-stage.x())/stage.scaleX(),y:(sp.y-stage.y())/stage.scaleY()});
+
+stage.on('click tap',e=>{
+  const world=toWorld(stage.getPointerPosition());
+  if(S.mode==='draw'){
+    if(e.target!==stage&&e.target.getLayer()===mainLayer) return;
+    addVertex(world.x,world.y);
+  } else if(S.mode==='calibrate'&&S.calActive){
+    if(!S.calP1){
+      S.calP1=world;
+      document.getElementById('mstep').textContent='Step 2 of 2 — click second point on canvas';
+      drawCalUI();
+    } else if(!S.calP2){
+      S.calP2=world;
+      document.getElementById('minput-row').style.display='flex';
+      document.getElementById('mbtn-ok').style.display='inline-block';
+      document.getElementById('mstep').textContent='Enter the real-world distance:';
+      document.getElementById('mdist').focus();
+      drawCalUI();
+    }
+  } else if(S.mode==='select'){
+    if(e.target===stage||e.target.getLayer()!==mainLayer){S.selId=null;updatePropPanel();render();}
+  } else if(S.mode==='measure'){
+    S.measurePts.push({x:world.x,y:world.y});
+    drawMeasureUI();
+  }
+});
+stage.on('mousemove',()=>{
+  if(S.mode==='measure'&&S.measurePts.length>0){
+    S.measureLive=toWorld(stage.getPointerPosition());
+    drawMeasureUI();
+  }
+});
+stage.on('contextmenu',e=>{
+  e.evt.preventDefault();
+  if(S.mode==='measure'){
+    // Right-click clears the current measurement
+    S.measurePts=[];S.measureLive=null;drawMeasureUI();return;
+  }
+  if(S.mode==='draw'&&S.vertices.length>=2)setMode('select');
+});
+stage.on('wheel',e=>{
+  if(S.aerial){e.evt.preventDefault();return;} // Leaflet handles zoom
+  e.evt.preventDefault();
+  const old=stage.scaleX(), ptr=stage.getPointerPosition();
+  const wb={x:(ptr.x-stage.x())/old,y:(ptr.y-stage.y())/old};
+  const ns=Math.max(0.04,Math.min(60,old*(e.evt.deltaY<0?1.13:0.88)));
+  stage.scale({x:ns,y:ns}); stage.x(ptr.x-wb.x*ns); stage.y(ptr.y-wb.y*ns);
+});
+stage.on('mousedown touchstart',()=>{if(S.mode==='pan'&&!S.aerial)stage.draggable(true);});
+stage.on('mouseup touchend',()=>{stage.draggable(false);});
+// Middle-mouse pan
+let mm={drag:false,a:{x:0,y:0},b:{x:0,y:0}};
+document.getElementById('stage-container').addEventListener('mousedown',e=>{if(e.button===1){e.preventDefault();mm.drag=true;mm.a={x:e.clientX,y:e.clientY};mm.b={x:stage.x(),y:stage.y()};}});
+document.addEventListener('mousemove',e=>{if(mm.drag){stage.x(mm.b.x+e.clientX-mm.a.x);stage.y(mm.b.y+e.clientY-mm.a.y);}});
+document.addEventListener('mouseup',e=>{if(e.button===1)mm.drag=false;});
+
+// ══════════════════════════════════════════════════════════════════
+// 13. VERTEX & PATH MANAGEMENT
+// ══════════════════════════════════════════════════════════════════
+function addVertex(x,y){
+  const id=`v${S._uid++}`;
+  const v={id,x,y,radius:0};
+  // In aerial mode, also store lat/lng so vertex survives map pan/zoom
+  if(S.aerial&&S.leaflet){
+    const ll=S.leaflet.containerPointToLatLng([x,y]);
+    v.lat=ll.lat; v.lng=ll.lng;
+  }
+  S.vertices.push(v);
+  S.selId=id; updatePropPanel();
+  setStatus(`${S.vertices.length} vertices — right-click or switch to Select to finish`);
+  render();
+}
+function undoLast(){if(!S.vertices.length)return;S.vertices.pop();S.selId=S.vertices.length?S.vertices[S.vertices.length-1].id:null;updatePropPanel();render();}
+function clearPath(){S.vertices=[];S.selId=null;S.estPpm=null;updatePropPanel();document.getElementById('min-warn').style.display='none';render();}
+
+// ══════════════════════════════════════════════════════════════════
+// 14. MODE & UI
+// ══════════════════════════════════════════════════════════════════
+const MODE_HELP={
+  draw:'Click to add path vertices · Right-click or switch to Select when done',
+  select:'Click a vertex to select · Drag to move · Edit radius in panel below',
+  calibrate:'Click two points on the drawing with a known distance',
+  pan:'Drag to pan · Scroll wheel to zoom (also works in all other modes)',
+  measure:'Click to set points · segments accumulate · right-click to clear',
+};
+function setMode(m){
+  // Clear measure overlay when leaving measure mode
+  if(S.mode==='measure'&&m!=='measure'){
+    S.measurePts=[];S.measureLive=null;
+    uiLayer.destroyChildren();uiLayer.batchDraw();
+  }
+  S.mode=m;
+  // In aerial mode, Leaflet owns pan — never make Konva stage draggable
+  stage.draggable(m==='pan'&&!S.aerial);
+  document.querySelectorAll('.tbtn').forEach(b=>b.classList.remove('active'));
+  const map={draw:'tbtn-draw',select:'tbtn-select',scale:'tbtn-scale',pan:'tbtn-pan',measure:'tbtn-measure'};
+  if(map[m])document.getElementById(map[m]).classList.add('active');
+  document.getElementById('stage-container').style.cursor={draw:'crosshair',select:'default',calibrate:'crosshair',pan:'grab',measure:'crosshair'}[m]||'default';
+  // In aerial pan mode, let pointer events pass through to Leaflet
+  document.getElementById('stage-container').style.pointerEvents=(S.aerial&&m==='pan')?'none':'auto';
+  setStatus(MODE_HELP[m]||'');
+  mainLayer.find('Circle').forEach(c=>c.draggable(m==='select'));
+}
+function setStatus(msg){document.getElementById('status').textContent=msg||'';}
+
+function updatePropPanel(){
+  const panel=document.getElementById('prop-panel');
+  const v=S.vertices.find(v=>v.id===S.selId);
+  if(!v){panel.classList.remove('on');return;}
+  panel.classList.add('on');
+  const idx=S.vertices.indexOf(v), isEnd=idx===0||idx===S.vertices.length-1;
+  const inp=document.getElementById('inp-radius');
+  document.getElementById('punit').textContent='ft';
+  if(isEnd){
+    inp.value='';inp.placeholder='endpoint';inp.disabled=true;
+    document.getElementById('phint').textContent='Endpoints cannot have a curve radius';
+  } else {
+    inp.disabled=false;
+    inp.value=v.radius.toFixed(0); // radius stored in feet
+    inp.placeholder='0';
+    document.getElementById('phint').textContent=`0 = sharp corner · ${S.vehicle.code} min: ${dispLen(S.vehicle.Rmin)} ft`;
+  }
+}
+function onRadiusInput(val){
+  const v=S.vertices.find(v=>v.id===S.selId); if(!v) return;
+  v.radius=parseFloat(val)||0; // value entered and stored in feet
+  render();
+}
+function setUnits(u){
+  S.units='ft'; // always feet — meters option removed
+  document.getElementById('u-ft').classList.add('active');
+  document.getElementById('munit-lbl').textContent='ft';
+  updatePropPanel(); updateScaleDisplay(); updateSpeedPanel();
+}
+function dispLen(ft){return ft.toFixed(0);} // all dimensions already in feet
+function updateScaleDisplay(){
+  const el=document.getElementById('scale-val');
+  if(!S.ppm){el.textContent='Not calibrated';el.classList.remove('ok');}
+  else{el.classList.add('ok');el.textContent=`1 ft = ${S.ppm.toFixed(2)} px`;}
+  updateScaleBar();
+}
+
+function updateScaleBar(){
+  const bar=document.getElementById('scale-bar');
+  if(!S.ppm){bar.style.display='none';return;}
+  // Pick a round number that renders between 60–180 px wide
+  const rounds=[5,10,20,30,50,100,200,300,500]; // feet
+  const pxPerFt=S.ppm; // S.ppm is px/ft
+  let chosen=rounds[0];
+  for(const r of rounds){const px=r*pxPerFt;if(px>=60&&px<=180){chosen=r;break;}if(px<60)chosen=r;}
+  const barPx=Math.round(chosen*pxPerFt);
+  document.getElementById('sb-bar').style.width=barPx+'px';
+  document.getElementById('sb-label').textContent=chosen+' ft';
+  bar.style.display='block';
+}
+
+// ══════════════════════════════════════════════════════════════════
+// 15. SCALE CALIBRATION
+// ══════════════════════════════════════════════════════════════════
+function startCalibrate(){
+  S.calActive=true;S.calP1=null;S.calP2=null;
+  const m=document.getElementById('scale-modal');m.classList.remove('hide');
+  document.getElementById('mstep').textContent='Step 1 of 2 — click first point on canvas';
+  document.getElementById('minput-row').style.display='none';
+  document.getElementById('mbtn-ok').style.display='none';
+  document.getElementById('mdist').value='';
+  document.getElementById('munit-lbl').textContent='ft';
+  setMode('calibrate');
+}
+function cancelScale(){
+  S.calActive=false;S.calP1=null;S.calP2=null;
+  document.getElementById('scale-modal').classList.add('hide');
+  uiLayer.destroyChildren();uiLayer.batchDraw();
+  setMode('select');
+}
+function confirmScale(){
+  const d=parseFloat(document.getElementById('mdist').value);
+  if(!d||d<=0){alert('Enter a valid positive distance.');return;}
+  S.ppm=vdist(S.calP1,S.calP2)/d; // d is feet, ppm = px/ft
+  document.getElementById('scale-modal').classList.add('hide');
+  S.calActive=false;
+  uiLayer.destroyChildren();uiLayer.batchDraw();
+  updateScaleDisplay();updatePropPanel();setMode('select');render();
+}
+function drawCalUI(){
+  uiLayer.destroyChildren();
+  [S.calP1,S.calP2].forEach(p=>{
+    if(!p)return;
+    uiLayer.add(new Konva.Circle({x:p.x,y:p.y,radius:5,fill:'#dc2626',stroke:'#fff',strokeWidth:1.5}));
+    uiLayer.add(new Konva.Circle({x:p.x,y:p.y,radius:12,stroke:'#dc2626',strokeWidth:1,dash:[3,3],fill:'transparent'}));
+  });
+  if(S.calP1&&S.calP2){
+    uiLayer.add(new Konva.Line({points:[S.calP1.x,S.calP1.y,S.calP2.x,S.calP2.y],stroke:'#dc2626',strokeWidth:1.5,dash:[6,4]}));
+    const mx=(S.calP1.x+S.calP2.x)/2,my=(S.calP1.y+S.calP2.y)/2;
+    const lbl=new Konva.Label({x:mx+4,y:my-14});
+    lbl.add(new Konva.Tag({fill:'rgba(17,24,39,.85)',cornerRadius:3}));
+    lbl.add(new Konva.Text({text:`${vdist(S.calP1,S.calP2).toFixed(0)}px`,fontSize:11,fill:'#fca5a5',padding:3}));
+    uiLayer.add(lbl);
+  }
+  uiLayer.batchDraw();
+}
+
+// ══════════════════════════════════════════════════════════════════
+// 15b. MEASURE TOOL
+// ══════════════════════════════════════════════════════════════════
+function drawMeasureUI(){
+  uiLayer.destroyChildren();
+  const pts=S.measurePts;
+  const live=S.measureLive;
+  // Full sequence including live preview point
+  const allPts=(live&&pts.length>0)?[...pts,live]:pts;
+
+  const ppm=S.ppm||S.estPpm||null;
+  function fmtDist(px){
+    if(!ppm) return`${px.toFixed(0)} px`;
+    const ft=px/ppm; // ppm is px/ft
+    return`${ft.toFixed(1)} ft`;
+  }
+
+  // Draw committed anchor dots
+  for(const p of pts){
+    uiLayer.add(new Konva.Circle({x:p.x,y:p.y,radius:5,fill:'#22d3ee',stroke:'#fff',strokeWidth:1.5,listening:false}));
+    uiLayer.add(new Konva.Circle({x:p.x,y:p.y,radius:11,stroke:'#22d3ee',strokeWidth:1,dash:[3,3],fill:'transparent',listening:false}));
+  }
+
+  // Draw each segment + distance label
+  let committedTotal=0;
+  for(let i=0;i<allPts.length-1;i++){
+    const a=allPts[i],b=allPts[i+1];
+    const isLiveSegment=(live&&i===allPts.length-2);
+    const d=vdist(a,b);
+    if(!isLiveSegment) committedTotal+=d;
+
+    // Segment line
+    uiLayer.add(new Konva.Line({
+      points:[a.x,a.y,b.x,b.y],
+      stroke:'#22d3ee',strokeWidth:isLiveSegment?1.5:2.2,
+      dash:isLiveSegment?[8,5]:undefined,
+      listening:false
+    }));
+
+    // Tick marks at each end (perpendicular to segment)
+    const dx=b.x-a.x,dy=b.y-a.y,dl=Math.sqrt(dx*dx+dy*dy)||1;
+    const nx=dx/dl,ny=dy/dl;
+    const tk=5;
+    [[a.x,a.y],[b.x,b.y]].forEach(([px,py])=>{
+      uiLayer.add(new Konva.Line({
+        points:[px+ny*tk,py-nx*tk,px-ny*tk,py+nx*tk],
+        stroke:'#22d3ee',strokeWidth:1.5,listening:false
+      }));
+    });
+
+    // Distance label at segment midpoint, offset perpendicular
+    const mx=(a.x+b.x)/2, my=(a.y+b.y)/2;
+    const offX=ny*16, offY=-nx*16;
+    const lbl=new Konva.Label({x:mx+offX,y:my+offY-8,listening:false});
+    lbl.add(new Konva.Tag({fill:'rgba(8,47,73,.93)',cornerRadius:3,stroke:'#22d3ee',strokeWidth:.6}));
+    lbl.add(new Konva.Text({text:fmtDist(d),fontSize:11,fontStyle:'bold',fill:'#67e8f9',padding:3}));
+    uiLayer.add(lbl);
+  }
+
+  // Running total label — show when ≥2 committed segments
+  if(pts.length>=3){
+    let tot=0;
+    for(let i=0;i<pts.length-1;i++) tot+=vdist(pts[i],pts[i+1]);
+    const last=pts[pts.length-1];
+    const tlbl=new Konva.Label({x:last.x+14,y:last.y+10,listening:false});
+    tlbl.add(new Konva.Tag({fill:'rgba(12,74,110,.97)',cornerRadius:4,stroke:'#38bdf8',strokeWidth:.8}));
+    tlbl.add(new Konva.Text({text:`Total: ${fmtDist(tot)}`,fontSize:12,fontStyle:'bold',fill:'#bae6fd',padding:4}));
+    uiLayer.add(tlbl);
+  }
+
+  // Live cursor crosshair
+  if(live){
+    const r=6;
+    uiLayer.add(new Konva.Line({points:[live.x-r,live.y,live.x+r,live.y],stroke:'#22d3ee',strokeWidth:1,listening:false}));
+    uiLayer.add(new Konva.Line({points:[live.x,live.y-r,live.x,live.y+r],stroke:'#22d3ee',strokeWidth:1,listening:false}));
+  }
+
+  uiLayer.batchDraw();
+}
+
+// ══════════════════════════════════════════════════════════════════
+// 16. PDF / IMAGE LOADING
+// ══════════════════════════════════════════════════════════════════
+function loadPDF(){document.getElementById('pdf-file').click();}
+async function onFileSelected(evt){
+  const file=evt.target.files[0];if(!file)return;evt.target.value='';
+  setStatus('Loading…');
+  if(file.type.startsWith('image/')){
+    const img=new Image();img.onload=()=>setBackground(img);img.src=URL.createObjectURL(file);return;
+  }
+  pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  try{
+    const buf=await file.arrayBuffer();
+    const pdf=await pdfjsLib.getDocument({data:buf}).promise;
+    const page=await pdf.getPage(1);
+    const vp0=page.getViewport({scale:1});
+    const sc=Math.min(5,3000/Math.max(vp0.width,vp0.height));
+    const vp=page.getViewport({scale:sc});
+    const canvas=document.createElement('canvas');canvas.width=vp.width;canvas.height=vp.height;
+    await page.render({canvasContext:canvas.getContext('2d'),viewport:vp}).promise;
+    const img=new Image();img.onload=()=>setBackground(img);img.src=canvas.toDataURL('image/png');
+  }catch(err){alert('Could not load PDF: '+err.message);setStatus(MODE_HELP[S.mode]);}
+}
+function setBackground(img){
+  if(S.aerial){
+    // ── Aerial mode: PDF as a draggable/scalable/rotatable overlay ──
+    pdfLayer.destroyChildren();
+    // Fit into ~60% of screen initially
+    const fs=Math.min(CW/img.width,CH/img.height)*0.60;
+    const kImg=new Konva.Image({
+      image:img,
+      x:(CW-img.width*fs)/2, y:(CH-img.height*fs)/2,
+      width:img.width*fs, height:img.height*fs,
+      opacity:0.70, draggable:true, listening:true,
+    });
+    pdfLayer.add(kImg);
+    // Transformer for resize + rotate
+    if(S.pdfXformer) S.pdfXformer.destroy();
+    const tr=new Konva.Transformer({
+      nodes:[kImg],
+      keepRatio:true,
+      enabledAnchors:['top-left','top-right','bottom-left','bottom-right'],
+      rotateEnabled:true,
+      borderStroke:'#f59e0b', borderStrokeWidth:1.5,
+      anchorFill:'#f59e0b', anchorStroke:'#92400e', anchorSize:10,
+    });
+    pdfLayer.add(tr);
+    S.pdfOverlay=kImg; S.pdfXformer=tr;
+    // Float pdfLayer to TOP so transformer handles receive clicks
+    pdfLayer.moveToTop();
+    pdfLayer.listening(true);
+    pdfLayer.batchDraw();
+    document.getElementById('overlay-panel').style.display='block';
+    document.getElementById('overlay-opacity').value=70;
+    document.getElementById('overlay-pct').textContent='70%';
+    document.getElementById('btn-lock-overlay').style.display='block';
+    document.getElementById('btn-unlock-overlay').style.display='none';
+    setStatus('PDF overlay loaded — drag, scale corners, rotate handle to align with aerial');
+  } else {
+    // ── Normal mode: PDF fills background, stage fits to it ──
+    bgLayer.destroyChildren();
+    bgLayer.add(new Konva.Image({image:img,x:0,y:0,width:img.width,height:img.height,listening:false}));
+    bgLayer.batchDraw();
+    const fs=Math.min(CW/img.width,CH/img.height)*0.92;
+    stage.scale({x:fs,y:fs});stage.x((CW-img.width*fs)/2);stage.y((CH-img.height*fs)/2);
+    setStatus(`PDF loaded (${img.width}×${img.height}px) — use Scale tool to calibrate, then draw your path`);
+  }
+}
+function setOverlayOpacity(v){
+  if(S.pdfOverlay) S.pdfOverlay.opacity(v/100);
+  document.getElementById('overlay-pct').textContent=v+'%';
+  pdfLayer.batchDraw();
+}
+function lockOverlay(){
+  if(S.pdfXformer) S.pdfXformer.hide();
+  if(S.pdfOverlay) S.pdfOverlay.draggable(false);
+  // Save geographic anchor so PDF stays glued to map on pan/zoom
+  if(S.pdfOverlay&&S.leaflet){
+    const kImg=S.pdfOverlay;
+    const ppm=aerialPpm(S.leaflet);
+    S.pdfGeo={
+      anchorLatLng:S.leaflet.containerPointToLatLng([kImg.x(),kImg.y()]),
+      widthFt:kImg.width()*kImg.scaleX()/ppm,   // feet (ppm = px/ft)
+      heightFt:kImg.height()*kImg.scaleY()/ppm, // feet
+      rotation:kImg.rotation()
+    };
+  }
+  // Sink pdfLayer below drawing layers so paths render on top
+  pdfLayer.listening(false);
+  pdfLayer.zIndex(1);
+  pdfLayer.batchDraw();
+  document.getElementById('btn-lock-overlay').style.display='none';
+  document.getElementById('btn-unlock-overlay').style.display='block';
+  // Restore pointer-events for current mode
+  const sc=document.getElementById('stage-container');
+  sc.style.pointerEvents=(S.mode==='pan')?'none':'auto';
+  setStatus('PDF locked — switch to Draw and trace your path');
+}
+function removeOverlay(){
+  pdfLayer.destroyChildren(); pdfLayer.batchDraw();
+  S.pdfOverlay=null; S.pdfXformer=null; S.pdfGeo=null;
+  document.getElementById('overlay-panel').style.display='none';
+  setStatus('PDF removed');
+}
+function unlockOverlay(){
+  S.pdfGeo=null; // clear geo anchor so free movement works again
+  if(S.pdfXformer) S.pdfXformer.show();
+  if(S.pdfOverlay) S.pdfOverlay.draggable(true);
+  // Float pdfLayer to top so transformer handles are clickable
+  pdfLayer.listening(true);
+  pdfLayer.moveToTop();
+  pdfLayer.batchDraw();
+  // Always allow clicks through to pdfLayer while adjusting
+  document.getElementById('stage-container').style.pointerEvents='auto';
+  document.getElementById('btn-lock-overlay').style.display='block';
+  document.getElementById('btn-unlock-overlay').style.display='none';
+  setStatus('PDF unlocked — drag, scale corners, rotate handle to re-align');
+}
+
+// ══════════════════════════════════════════════════════════════════
+// 17. EXPORT
+// ══════════════════════════════════════════════════════════════════
+async function exportPNG(){
+  const pr=2; // pixel ratio
+  const filename=`turn-${S.vehicle.code}-${Date.now()}.png`;
+
+  if(S.aerial&&S.leaflet){
+    // ── Composite: Leaflet tiles + Konva canvas ──────────────────
+    const out=document.createElement('canvas');
+    out.width=CW*pr; out.height=CH*pr;
+    const ctx=out.getContext('2d');
+    ctx.fillStyle='#0f172a'; ctx.fillRect(0,0,out.width,out.height);
+    ctx.scale(pr,pr);
+
+    // Draw visible Leaflet tiles
+    const mapEl=document.getElementById('map-container');
+    const mapRect=mapEl.getBoundingClientRect();
+    const tiles=mapEl.querySelectorAll('.leaflet-tile:not(.leaflet-tile-loading)');
+    for(const t of tiles){
+      if(!t.complete||!t.naturalWidth) continue;
+      const r=t.getBoundingClientRect();
+      try{ ctx.drawImage(t,r.left-mapRect.left,r.top-mapRect.top,r.width,r.height); }
+      catch(e){ /* CORS – skip tile */ }
+    }
+
+    // Draw Konva (PDF overlay + paths + tracks) on top
+    await new Promise(res=>{
+      const img=new Image();
+      img.onload=()=>{ctx.drawImage(img,0,0,CW,CH);res();};
+      img.src=stage.toDataURL({pixelRatio:1,mimeType:'image/png'});
+    });
+
+    const a=document.createElement('a');a.href=out.toDataURL('image/png');a.download=filename;a.click();
+  } else {
+    // ── Standard Konva-only export ───────────────────────────────
+    const a=document.createElement('a');
+    a.href=stage.toDataURL({pixelRatio:pr,mimeType:'image/png'});
+    a.download=filename; a.click();
+  }
+}
+
+// ── Shared helper: recompute all geometry for export ──────────────
+function getExportData(){
+  const vs=S.vertices;
+  if(vs.length<2) return null;
+  const effectivePpm=S.ppm||S.estPpm||8;
+  const curves=vs.map((v,i)=>{
+    if(i===0||i===vs.length-1||v.radius<=0) return null;
+    return computeCurve(vs[i-1],v,vs[i+1],v.radius*effectivePpm);
+  });
+  const pathPts=computePathPoints(vs,curves);
+  if(pathPts.length<2) return null;
+  const frames=simulateAxles(pathPts,S.vehicle,effectivePpm);
+  const tracks=computeWheelTracks(frames,S.vehicle,effectivePpm,pathPts);
+  const env=buildSweptEnvelope(frames,S.vehicle,effectivePpm,pathPts);
+  return{pathPts,frames,tracks,env,effectivePpm};
+}
+
+// ── DXF Export ────────────────────────────────────────────────────
+function exportDXF(){
+  const data=getExportData();
+  if(!data){alert('Draw a path with at least 2 points first.');return;}
+  const{pathPts,tracks,env,effectivePpm}=data;
+
+  // Pixel → DXF world coordinates (meters, Y-up)
+  let toXY;
+  if(S.aerial&&S.leaflet){
+    const ctr=S.leaflet.getCenter();
+    const Rearth=6378137, olat=ctr.lat*Math.PI/180;
+    toXY=pt=>{
+      const ll=S.leaflet.containerPointToLatLng([pt.x,pt.y]);
+      return{
+        x:Rearth*(ll.lng-ctr.lng)*Math.PI/180*Math.cos(olat),
+        y:Rearth*(ll.lat-ctr.lat)*Math.PI/180
+      };
+    };
+  } else {
+    toXY=pt=>({x:pt.x/effectivePpm, y:-pt.y/effectivePpm});
+  }
+
+  // R12-format POLYLINE/VERTEX/SEQEND — universally supported by all CAD apps
+  function polyline(pts,layer,closed){
+    if(!pts||pts.length<2) return '';
+    const flag=closed?1:0;
+    let s=`0\nPOLYLINE\n8\n${layer}\n66\n1\n10\n0.0\n20\n0.0\n30\n0.0\n70\n${flag}\n`;
+    for(const p of pts){
+      const c=toXY(p);
+      s+=`0\nVERTEX\n8\n${layer}\n10\n${c.x.toFixed(4)}\n20\n${c.y.toFixed(4)}\n30\n0.0\n`;
+    }
+    s+=`0\nSEQEND\n8\n${layer}\n`;
+    return s;
+  }
+
+  // Layer table: [name, ACI colour index]
+  const layerDefs=[
+    ['CENTERLINE',5],       // blue
+    ['FRONT-WHEEL',1],      // red
+    ['FRONT-OVERHANG',4],   // cyan
+    ['REAR-AXLE',3],        // green
+    ['TRAILER-AXLE',2],     // yellow
+    ['SWEPT-ENVELOPE',6],   // magenta
+  ];
+
+  // ── DXF R12 (AC1009) ─────────────────────────────────────────────
+  let dxf='';
+  // HEADER
+  dxf+='0\nSECTION\n2\nHEADER\n';
+  dxf+='9\n$ACADVER\n1\nAC1009\n';   // R12 — broadest compatibility
+  dxf+='9\n$INSUNITS\n70\n2\n';      // 2 = feet
+  dxf+='9\n$EXTMIN\n10\n0.0\n20\n0.0\n30\n0.0\n';
+  dxf+='9\n$EXTMAX\n10\n1000.0\n20\n1000.0\n30\n0.0\n';
+  dxf+='0\nENDSEC\n';
+  // TABLES
+  dxf+='0\nSECTION\n2\nTABLES\n';
+  // LTYPE table (required — at minimum define CONTINUOUS)
+  dxf+='0\nTABLE\n2\nLTYPE\n70\n1\n';
+  dxf+='0\nLTYPE\n2\nCONTINUOUS\n70\n0\n3\nSolid line\n72\n65\n73\n0\n40\n0.0\n';
+  dxf+='0\nENDTAB\n';
+  // LAYER table
+  dxf+='0\nTABLE\n2\nLAYER\n70\n'+layerDefs.length+'\n';
+  for(const[n,c]of layerDefs){
+    dxf+=`0\nLAYER\n2\n${n}\n70\n0\n62\n${c}\n6\nCONTINUOUS\n`;
+  }
+  dxf+='0\nENDTAB\n';
+  dxf+='0\nENDSEC\n';
+  // ENTITIES
+  dxf+='0\nSECTION\n2\nENTITIES\n';
+  dxf+=polyline(pathPts,'CENTERLINE',false);
+  dxf+=polyline(tracks.fL,'FRONT-WHEEL',false);
+  dxf+=polyline(tracks.fR,'FRONT-WHEEL',false);
+  dxf+=polyline(tracks.fOL,'FRONT-OVERHANG',false);
+  dxf+=polyline(tracks.fOR,'FRONT-OVERHANG',false);
+  dxf+=polyline(tracks.p1L,'REAR-AXLE',false);
+  dxf+=polyline(tracks.p1R,'REAR-AXLE',false);
+  if(tracks.tL.length){
+    dxf+=polyline(tracks.tL,'TRAILER-AXLE',false);
+    dxf+=polyline(tracks.tR,'TRAILER-AXLE',false);
+  }
+  const swPoly=[...env.leftB,...[...env.rightB].reverse()];
+  dxf+=polyline(swPoly,'SWEPT-ENVELOPE',true);
+  dxf+='0\nENDSEC\n0\nEOF\n';
+
+  const blob=new Blob([dxf],{type:'text/plain'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=`turn-${S.vehicle.code}-${Date.now()}.dxf`;
+  a.click();
+}
+
+// ── KML Export ────────────────────────────────────────────────────
+function exportKML(){
+  const data=getExportData();
+  if(!data){alert('Draw a path with at least 2 points first.');return;}
+
+  if(!S.aerial||!S.leaflet){
+    alert('KML export requires Aerial mode.\n\nEnable Aerial, position your path on the map, then export KML.');
+    return;
+  }
+
+  const{pathPts,tracks,env,effectivePpm}=data;
+
+  function toLngLat(pt){
+    const ll=S.leaflet.containerPointToLatLng([pt.x,pt.y]);
+    return`${ll.lng.toFixed(8)},${ll.lat.toFixed(8)},0`;
+  }
+
+  // Convert vehicle hex colour (#rrggbb) → KML aabbggrr
+  function hexToKml(hex,alpha){
+    const h=hex.replace('#','');
+    const r=h.substring(0,2),g=h.substring(2,4),b=h.substring(4,6);
+    return`${alpha}${b}${g}${r}`;
+  }
+  const vCol=S.vehicle.color;
+  const kFull=hexToKml(vCol,'ff');
+  const kSemi=hexToKml(vCol,'55');
+  const kBlue='ffff6060', kYellow='ff00d4ff';
+
+  function lineplacemark(name,pts,kmlcol,width){
+    if(!pts||pts.length<2) return '';
+    const coords=pts.map(toLngLat).join('\n');
+    return`  <Placemark><name>${name}</name>
+    <Style><LineStyle><color>${kmlcol}</color><width>${width||2}</width></LineStyle></Style>
+    <LineString><tessellate>1</tessellate><coordinates>\n${coords}\n    </coordinates></LineString>
+  </Placemark>\n`;
+  }
+
+  let kml=`<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+<Document>
+  <name>Vehicle Turn — ${S.vehicle.name}</name>
+  <description>Exported from Vehicle Turn Analysis. Vehicle: ${S.vehicle.name} (${S.vehicle.code})</description>\n`;
+
+  kml+=lineplacemark('Centerline',pathPts,'ff60a5fa',2);
+  kml+=lineplacemark('Front Wheel L',tracks.fL,kFull,2.5);
+  kml+=lineplacemark('Front Wheel R',tracks.fR,kFull,2.5);
+  kml+=lineplacemark('Front Overhang L',tracks.fOL,kFull+'aa'.substring(0,2)+kFull.substring(2),1.5);
+  kml+=lineplacemark('Front Overhang R',tracks.fOR,kFull,1.5);
+  kml+=lineplacemark('Rear Axle L',tracks.p1L,kBlue,1.5);
+  kml+=lineplacemark('Rear Axle R',tracks.p1R,kBlue,1.5);
+  if(tracks.tL.length){
+    kml+=lineplacemark('Trailer Rear L',tracks.tL,kYellow,2.5);
+    kml+=lineplacemark('Trailer Rear R',tracks.tR,kYellow,2.5);
+  }
+
+  // Swept envelope as filled Polygon
+  if(env.leftB.length>2){
+    const ring=[...env.leftB,...[...env.rightB].reverse(),env.leftB[0]];
+    const coords=ring.map(toLngLat).join('\n');
+    kml+=`  <Placemark><name>Swept Envelope</name>
+    <Style>
+      <PolyStyle><color>${kSemi}</color><outline>1</outline></PolyStyle>
+      <LineStyle><color>${kFull}</color><width>1.5</width></LineStyle>
+    </Style>
+    <Polygon><tessellate>1</tessellate>
+      <outerBoundaryIs><LinearRing><coordinates>\n${coords}\n      </coordinates></LinearRing></outerBoundaryIs>
+    </Polygon>
+  </Placemark>\n`;
+  }
+
+  kml+=`</Document>\n</kml>`;
+
+  const blob=new Blob([kml],{type:'application/vnd.google-earth.kml+xml'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=`turn-${S.vehicle.code}-${Date.now()}.kml`;
+  a.click();
+}
+
+// ══════════════════════════════════════════════════════════════════
+// 18. VEHICLE PANEL
+// ══════════════════════════════════════════════════════════════════
+function buildVehicleList(){
+  const list=document.getElementById('vlist');
+  const cats=[...new Set(VEHICLES.map(v=>v.cat))];
+  cats.forEach(cat=>{
+    const h=document.createElement('div');h.className='vcat';h.textContent=cat;list.appendChild(h);
+    VEHICLES.filter(v=>v.cat===cat).forEach(v=>{
+      const el=document.createElement('div');
+      el.className='vitem'+(v.id===S.vehicle.id?' active':'');el.id=`vi-${v.id}`;
+      el.innerHTML=`<div><div class="vname">${v.name}</div><div class="vcode">${v.code}&nbsp; W:${v.W.toFixed(1)}ft&nbsp; WB:${(v.L1+(v.L2||0)).toFixed(0)}ft</div></div><div class="vswatch" style="background:${v.color}"></div>`;
+      el.onclick=()=>selectVehicle(v.id);
+      list.appendChild(el);
+    });
+  });
+  updateLegendColors();
+}
+function selectVehicle(id){
+  S.vehicle=VEHICLES.find(v=>v.id===id);
+  document.querySelectorAll('.vitem').forEach(el=>el.classList.remove('active'));
+  const el=document.getElementById(`vi-${id}`);if(el)el.classList.add('active');
+  updateLegendColors();updateVehicleInfo();updatePropPanel();updateSpeedPanel();render();
+}
+function updateLegendColors(){
+  const col=S.vehicle.color;
+  document.getElementById('lg-swept').style.background=col+'30';
+  document.getElementById('lg-swept').style.borderColor=col;
+  document.getElementById('lg-front').style.background=col;
+  document.getElementById('lg-rear1').style.background=col+'cc';
+}
+function updateVehicleInfo(){
+  const v=S.vehicle;
+  const W=v.W.toFixed(1);
+  const L=v.L.toFixed(1);
+  const WB=(v.L1+(v.L2||0)).toFixed(1);
+  const Rm=dispLen(v.Rmin);
+  const artic=v.L2>0?`<br>Articulated (L1:${dispLen(v.L1)} ft + L2:${dispLen(v.L2)} ft)`:'';
+  document.getElementById('vinfo').innerHTML=`<strong>${v.name}</strong><br>Width: ${W} ft &nbsp;| Length: ${L} ft<br>WB: ${WB} ft &nbsp;| Min R: ${Rm} ft${artic}`;
+}
+
+// ══════════════════════════════════════════════════════════════════
+// 19. INIT
+// ══════════════════════════════════════════════════════════════════
+buildVehicleList();updateVehicleInfo();setMode('draw');updateSpeedPanel();
+setStatus(MODE_HELP.draw);
+
+async function doLogout(){
+  if(window._sb){ await window._sb.auth.signOut(); }
+  window.location.href='login.html';
+}
+</script>
+</body>
+</html>

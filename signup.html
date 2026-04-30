@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sign Up — P.Lasalde Turn Simulator</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0f172a;color:#f1f5f9;font-family:'Segoe UI',system-ui,sans-serif;
+  min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px}
+.logo{font-size:15px;font-weight:700;color:#ef4444;margin-bottom:36px;letter-spacing:.3px}
+.card{background:#1e293b;border:1px solid #334155;border-radius:16px;padding:40px;width:100%;max-width:420px}
+h1{font-size:22px;font-weight:800;margin-bottom:6px}
+.sub{font-size:13px;color:#94a3b8;margin-bottom:28px}
+.field{margin-bottom:18px}
+label{display:block;font-size:12px;font-weight:600;color:#94a3b8;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px}
+input[type=email],input[type=password],input[type=text]{width:100%;padding:11px 14px;background:#0f172a;
+  border:1px solid #334155;border-radius:8px;color:#f1f5f9;font-size:14px;outline:none;transition:border .15s}
+input:focus{border-color:#ef4444}
+.disclaimer-box{background:#0f172a;border:1px solid #334155;border-radius:8px;padding:14px;
+  font-size:11px;color:#64748b;line-height:1.7;max-height:120px;overflow-y:auto;margin-bottom:12px}
+.check-row{display:flex;align-items:flex-start;gap:10px;cursor:pointer}
+.check-row input[type=checkbox]{width:16px;height:16px;margin-top:2px;accent-color:#ef4444;flex-shrink:0;cursor:pointer}
+.check-row span{font-size:12px;color:#94a3b8;line-height:1.5}
+.check-row span b{color:#f1f5f9}
+.btn{width:100%;padding:12px;background:#ef4444;color:#fff;border:none;border-radius:8px;
+  font-size:14px;font-weight:700;cursor:pointer;margin-top:20px;transition:background .15s}
+.btn:hover{background:#dc2626}
+.btn:disabled{background:#475569;cursor:not-allowed}
+.msg{font-size:13px;margin-top:14px;padding:10px 14px;border-radius:8px;display:none}
+.msg.error{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);color:#fca5a5}
+.msg.success{background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.3);color:#86efac}
+.footer-links{margin-top:24px;text-align:center;font-size:13px;color:#64748b}
+.footer-links a{color:#ef4444;font-weight:600}
+.beta-badge{display:inline-block;background:rgba(239,68,68,.15);color:#ef4444;
+  border:1px solid rgba(239,68,68,.3);border-radius:12px;padding:2px 10px;font-size:11px;font-weight:600;margin-bottom:16px}
+</style>
+</head>
+<body>
+<a href="index.html" class="logo">▶ P.Lasalde Turn Simulator</a>
+<div class="card">
+  <div class="beta-badge">Beta — Full Free Access</div>
+  <h1>Create your account</h1>
+  <p class="sub">Free during beta · No credit card required</p>
+
+  <div class="field">
+    <label>Full Name</label>
+    <input type="text" id="name" placeholder="Pedro Lasalde" autocomplete="name">
+  </div>
+  <div class="field">
+    <label>Email</label>
+    <input type="email" id="email" placeholder="you@example.com" autocomplete="email">
+  </div>
+  <div class="field">
+    <label>Password</label>
+    <input type="password" id="password" placeholder="Min. 8 characters" autocomplete="new-password">
+  </div>
+  <div class="field">
+    <label>Confirm Password</label>
+    <input type="password" id="password2" placeholder="••••••••" autocomplete="new-password">
+  </div>
+
+  <div class="field">
+    <label>Disclaimer</label>
+    <div class="disclaimer-box">
+      P.Lasalde Turn Simulator is provided for planning, visualization, and preliminary analysis purposes only.
+      Results are not a substitute for professional engineering analysis and should not be used as the sole
+      basis for any design, construction, or operational decision. All turning path simulations are approximate.
+      Real-world vehicle performance may vary based on driver skill, road conditions, vehicle loading, speed,
+      and other factors. P.Lasalde, its developers, and affiliates are not responsible or liable for any
+      decisions, damages, or consequences arising from the use or misuse of this software.
+    </div>
+    <label class="check-row">
+      <input type="checkbox" id="agree">
+      <span>I have read and agree to the <b>disclaimer</b>. I understand this tool is for planning purposes only and I am responsible for verifying all results.</span>
+    </label>
+  </div>
+
+  <button class="btn" id="signup-btn" onclick="doSignup()">Create Free Account</button>
+  <div class="msg" id="msg"></div>
+  <div class="footer-links">
+    Already have an account? <a href="login.html">Log in</a>
+  </div>
+</div>
+
+<script>
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+
+supabase.auth.getSession().then(({data:{session}})=>{
+  if(session) window.location.href='app.html';
+});
+
+async function doSignup(){
+  const name     = document.getElementById('name').value.trim();
+  const email    = document.getElementById('email').value.trim();
+  const pw       = document.getElementById('password').value;
+  const pw2      = document.getElementById('password2').value;
+  const agreed   = document.getElementById('agree').checked;
+  const btn      = document.getElementById('signup-btn');
+
+  if(!name)          { showMsg('Please enter your name.','error'); return; }
+  if(!email)         { showMsg('Please enter your email.','error'); return; }
+  if(pw.length < 8)  { showMsg('Password must be at least 8 characters.','error'); return; }
+  if(pw !== pw2)     { showMsg('Passwords do not match.','error'); return; }
+  if(!agreed)        { showMsg('You must read and accept the disclaimer to continue.','error'); return; }
+
+  btn.disabled = true; btn.textContent = 'Creating account…';
+
+  const {error} = await supabase.auth.signUp({
+    email, password: pw,
+    options:{ data:{ full_name: name } }
+  });
+
+  if(error){
+    showMsg(error.message, 'error');
+    btn.disabled = false; btn.textContent = 'Create Free Account';
+  } else {
+    showMsg('Account created! Check your email to confirm, then log in.', 'success');
+    btn.textContent = 'Account Created ✓';
+  }
+}
+
+function showMsg(text, type){
+  const el = document.getElementById('msg');
+  el.textContent = text; el.className = 'msg '+type; el.style.display = 'block';
+}
+</script>
+</body>
+</html>

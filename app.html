@@ -76,6 +76,24 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#111827;color:#e5
 /* Modals */
 .overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);display:flex;align-items:center;justify-content:center;z-index:200}
 .overlay.hide{display:none}
+/* Welcome modal */
+#welcome-overlay{position:fixed;inset:0;background:rgba(0,0,0,.75);display:flex;align-items:center;justify-content:center;z-index:300;backdrop-filter:blur(4px)}
+#welcome-overlay.hide{display:none}
+.wbox{background:#1f2937;border:1px solid #374151;border-radius:16px;padding:32px;width:100%;max-width:620px;max-height:90vh;overflow-y:auto;margin:16px}
+.wbox h1{font-size:20px;font-weight:800;color:#f1f5f9;margin-bottom:4px}
+.wbox .wsub{font-size:13px;color:#6b7280;margin-bottom:24px}
+.wgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:24px}
+.wcard{background:#111827;border:1px solid #374151;border-radius:10px;padding:14px}
+.wcard-icon{font-size:20px;margin-bottom:8px}
+.wcard h3{font-size:13px;font-weight:700;color:#f1f5f9;margin-bottom:6px}
+.wcard ul{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:4px}
+.wcard li{font-size:11px;color:#9ca3af;display:flex;align-items:flex-start;gap:6px;line-height:1.5}
+.wcard li::before{content:'→';color:#ef4444;flex-shrink:0;font-size:10px;margin-top:1px}
+.wskip{display:flex;align-items:center;gap:8px;margin-bottom:16px;font-size:12px;color:#6b7280}
+.wskip input{accent-color:#ef4444;cursor:pointer}
+.wstart{width:100%;padding:12px;background:#ef4444;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer}
+.wstart:hover{background:#dc2626}
+@media(max-width:500px){.wgrid{grid-template-columns:1fr}}
 .mbox{background:#1f2937;border:1px solid #374151;border-radius:12px;padding:22px;width:310px}
 .mbox h2{font-size:15px;font-weight:600;margin-bottom:5px}
 .mbox p{font-size:12px;color:#6b7280;margin-bottom:14px;line-height:1.5}
@@ -347,6 +365,77 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#111827;color:#e5
       <button class="mbtn mbtn-ghost" onclick="cancelScale()">Cancel</button>
       <button class="mbtn mbtn-pri" id="mbtn-ok" onclick="confirmScale()">Apply Scale</button>
     </div>
+  </div>
+</div>
+
+<!-- Welcome / Instructions Modal -->
+<div id="welcome-overlay">
+  <div class="wbox">
+    <h1>▶ P.Lasalde Turn Simulator</h1>
+    <p class="wsub">AASHTO vehicle turning path analysis — here's how to get started</p>
+    <div class="wgrid">
+      <div class="wcard">
+        <div class="wcard-icon">✏️</div>
+        <h3>Drawing a Path</h3>
+        <ul>
+          <li>Click <b>Draw</b> then click on the canvas to place path nodes</li>
+          <li>Place at least 2 nodes to see the vehicle simulation</li>
+          <li>Right-click (or auto-switches) to enter Select mode</li>
+          <li>In aerial mode: <b>drag</b> to pan map, <b>scroll</b> to zoom</li>
+        </ul>
+      </div>
+      <div class="wcard">
+        <div class="wcard-icon">👆</div>
+        <h3>Editing Nodes</h3>
+        <ul>
+          <li>Click <b>Select</b> then click any node to select it</li>
+          <li>Drag a node to reposition it</li>
+          <li>Set a <b>Curve Radius</b> on middle nodes for smooth turns</li>
+          <li>Endpoints (start/end) cannot have a curve radius</li>
+        </ul>
+      </div>
+      <div class="wcard">
+        <div class="wcard-icon">🛰️</div>
+        <h3>Aerial & Background</h3>
+        <ul>
+          <li>Click <b>Aerial</b> to toggle live satellite imagery</li>
+          <li>Click <b>Load PDF</b> to overlay a site plan</li>
+          <li>Use <b>Scale</b> tool to calibrate real-world units</li>
+          <li>Lock the PDF to geo-reference it to the map</li>
+        </ul>
+      </div>
+      <div class="wcard">
+        <div class="wcard-icon">🚛</div>
+        <h3>Design Vehicles</h3>
+        <ul>
+          <li>9 AASHTO vehicles — Passenger Car to WB-20 (65 ft)</li>
+          <li>Min turning radius enforced per AASHTO Green Book</li>
+          <li>AASHTO speed check: green / yellow / red status</li>
+          <li>Reverse mode with jackknife detection for semitrailers</li>
+        </ul>
+      </div>
+      <div class="wcard">
+        <div class="wcard-icon">📥</div>
+        <h3>KML / KMZ Import</h3>
+        <ul>
+          <li>Click <b>KML In</b> to import reference geometry</li>
+          <li>Lines, polygons and points appear geo-referenced on the map</li>
+          <li>Import from Google Earth or GIS tools</li>
+        </ul>
+      </div>
+      <div class="wcard">
+        <div class="wcard-icon">📤</div>
+        <h3>Export</h3>
+        <ul>
+          <li><b>PNG</b> — high-res screenshot for reports</li>
+          <li><b>DXF</b> — AutoCAD R12 format</li>
+          <li><b>KML</b> — Google Earth (requires Aerial mode)</li>
+          <li>Undo / Clear buttons in the toolbar</li>
+        </ul>
+      </div>
+    </div>
+    <label class="wskip"><input type="checkbox" id="skip-welcome"> Don't show this again</label>
+    <button class="wstart" onclick="closeWelcome()">Get Started →</button>
   </div>
 </div>
 
@@ -2228,6 +2317,17 @@ function updateVehicleInfo(){
 // ══════════════════════════════════════════════════════════════════
 buildVehicleList();updateVehicleInfo();setMode('draw');updateSpeedPanel();
 setStatus(MODE_HELP.draw);
+
+// Welcome modal
+function closeWelcome(){
+  if(document.getElementById('skip-welcome').checked)
+    localStorage.setItem('plts-skip-welcome','1');
+  document.getElementById('welcome-overlay').classList.add('hide');
+}
+if(localStorage.getItem('plts-skip-welcome')!=='1')
+  document.getElementById('welcome-overlay').classList.remove('hide');
+else
+  document.getElementById('welcome-overlay').classList.add('hide');
 
 async function doLogout(){
   if(window._sb){ await window._sb.auth.signOut(); }

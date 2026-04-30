@@ -51,10 +51,10 @@ input:focus{border-color:#ef4444}
 </div>
 
 <script>
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+const sbClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
 
 // If already logged in, go straight to app
-supabase.auth.getSession().then(({data:{session}})=>{
+sbClient.auth.getSession().then(({data:{session}})=>{
   if(session) window.location.href='app.html';
 });
 
@@ -69,7 +69,7 @@ async function doLogin(){
   btn.disabled = true; btn.textContent = 'Logging in…';
   msg.style.display = 'none';
 
-  const {error} = await supabase.auth.signInWithPassword({email, password});
+  const {error} = await sbClient.auth.signInWithPassword({email, password});
 
   if(error){
     showMsg(error.message, 'error');

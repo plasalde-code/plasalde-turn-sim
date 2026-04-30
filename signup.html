@@ -86,9 +86,9 @@ input:focus{border-color:#ef4444}
 </div>
 
 <script>
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+const sbClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
 
-supabase.auth.getSession().then(({data:{session}})=>{
+sbClient.auth.getSession().then(({data:{session}})=>{
   if(session) window.location.href='app.html';
 });
 
@@ -108,7 +108,7 @@ async function doSignup(){
 
   btn.disabled = true; btn.textContent = 'Creating account…';
 
-  const {error} = await supabase.auth.signUp({
+  const {error} = await sbClient.auth.signUp({
     email, password: pw,
     options:{ data:{ full_name: name } }
   });

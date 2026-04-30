@@ -65,16 +65,22 @@ input:focus{border-color:#ef4444}
   <div class="field">
     <label>Disclaimer</label>
     <div class="disclaimer-box">
-      P.Lasalde Turn Simulator is provided for planning, visualization, and preliminary analysis purposes only.
+      <strong>Planning Disclaimer:</strong> P.Lasalde Turn Simulator is provided for planning, visualization, and preliminary analysis purposes only.
       Results are not a substitute for professional engineering analysis and should not be used as the sole
       basis for any design, construction, or operational decision. All turning path simulations are approximate.
       Real-world vehicle performance may vary based on driver skill, road conditions, vehicle loading, speed,
       and other factors. P.Lasalde, its developers, and affiliates are not responsible or liable for any
       decisions, damages, or consequences arising from the use or misuse of this software.
+      <br><br>
+      <strong>Intellectual Property:</strong> This software — including its source code, simulation algorithms,
+      vehicle library, and user interface — is the exclusive property of P.Lasalde. Unauthorized copying,
+      reproduction, modification, redistribution, or commercial use of any part of this software is strictly
+      prohibited without prior written permission. Access to this tool does not grant any license to the
+      underlying software.
     </div>
     <label class="check-row">
       <input type="checkbox" id="agree">
-      <span>I have read and agree to the <b>disclaimer</b>. I understand this tool is for planning purposes only and I am responsible for verifying all results.</span>
+      <span>I have read and agree to the <b>Terms of Use</b>, including the intellectual property restrictions. I understand this tool is for planning purposes only, I may not copy or redistribute any part of this software, and I am responsible for verifying all results.</span>
     </label>
   </div>
 
@@ -110,7 +116,9 @@ async function doSignup(){
 
   const {data, error} = await sbClient.auth.signUp({
     email, password: pw,
-    options:{ data:{ full_name: name } }
+    // Store terms acceptance in metadata so the in-app terms gate never shows
+    // for brand-new users (they accepted at signup).
+    options:{ data:{ full_name: name, terms_v2: true } }
   });
 
   if(error){

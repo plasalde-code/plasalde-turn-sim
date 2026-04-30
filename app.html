@@ -1700,7 +1700,37 @@ stage.on('mousemove',()=>{
     S.measureLive=toWorld(stage.getPointerPosition());
     drawMeasureUI();
   }
+  if(S.mode==='draw') drawGhostCursor();
 });
+stage.on('mouseleave',()=>{clearGhost();});
+
+function clearGhost(){
+  uiLayer.find('.ghost').forEach(n=>n.destroy());
+  uiLayer.batchDraw();
+}
+function drawGhostCursor(){
+  uiLayer.find('.ghost').forEach(n=>n.destroy());
+  const pos=stage.getPointerPosition();
+  if(!pos) return;
+  const w=toWorld(pos);
+  const vs=S.vertices;
+  // Preview line from last node to cursor
+  if(vs.length>0){
+    const last=vs[vs.length-1];
+    uiLayer.add(new Konva.Line({
+      points:[last.x,last.y,w.x,w.y],
+      stroke:'#60a5fa',strokeWidth:1.2,dash:[6,4],
+      listening:false,opacity:.55,name:'ghost'
+    }));
+  }
+  // Ghost node at cursor
+  uiLayer.add(new Konva.Circle({
+    x:w.x,y:w.y,radius:6,
+    fill:'rgba(96,165,250,.25)',stroke:'#60a5fa',strokeWidth:1.5,
+    dash:[3,2],listening:false,name:'ghost'
+  }));
+  uiLayer.batchDraw();
+}
 stage.on('mouseup touchend',()=>{stage.draggable(false);});
 stage.on('contextmenu',e=>{
   e.evt.preventDefault();
@@ -1762,6 +1792,7 @@ function setMode(m){
     uiLayer.destroyChildren();uiLayer.batchDraw();
   }
   S.mode=m;
+  clearGhost(); // clear draw-mode ghost cursor when switching modes
   // In aerial mode, Leaflet owns pan — never make Konva stage draggable
   stage.draggable(m==='pan'&&!S.aerial);
   document.querySelectorAll('.tbtn').forEach(b=>b.classList.remove('active'));

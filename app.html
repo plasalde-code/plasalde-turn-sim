@@ -1516,6 +1516,7 @@ const toWorld=sp=>({x:(sp.x-stage.x())/stage.scaleX(),y:(sp.y-stage.y())/stage.s
 stage.on('click tap',e=>{
   const world=toWorld(stage.getPointerPosition());
   if(S.mode==='draw'){
+    if(_ap.panned){_ap.panned=false;return;} // drag-pan ended, not a click
     if(e.target!==stage&&e.target.getLayer()===mainLayer) return;
     addVertex(world.x,world.y);
   } else if(S.mode==='calibrate'&&S.calActive){
@@ -1543,31 +1544,59 @@ stage.on('click tap',e=>{
     drawMeasureUI();
   }
 });
-stage.on('mousemove',()=>{
+// ── Aerial free-form pan state ─────────────────────────────────
+let _ap={on:false,lx:0,ly:0,panned:false};
+
+stage.on('mousedown touchstart',e=>{
+  if(S.mode==='pan'&&!S.aerial) stage.draggable(true);
+  // Begin aerial drag-to-pan tracking for draw/select/measure modes
+  if(S.aerial&&S.leaflet&&(e.evt.button===0||e.evt.touches)){
+    _ap.on=true; _ap.lx=e.evt.clientX||(e.evt.touches&&e.evt.touches[0].clientX)||0;
+    _ap.ly=e.evt.clientY||(e.evt.touches&&e.evt.touches[0].clientY)||0; _ap.panned=false;
+  }
+});
+stage.on('mousemove',e=>{
   if(S.mode==='measure'&&S.measurePts.length>0){
     S.measureLive=toWorld(stage.getPointerPosition());
     drawMeasureUI();
   }
+  // Aerial drag-to-pan: drag pans the map, click adds node / selects
+  if(_ap.on&&S.aerial&&S.leaflet&&S.mode!=='pan'){
+    const cx=e.evt.clientX||(e.evt.touches&&e.evt.touches[0].clientX)||_ap.lx;
+    const cy=e.evt.clientY||(e.evt.touches&&e.evt.touches[0].clientY)||_ap.ly;
+    const dx=cx-_ap.lx, dy=cy-_ap.ly;
+    if(Math.abs(dx)>4||Math.abs(dy)>4){
+      S.leaflet.panBy([-dx,-dy],{animate:false});
+      _ap.lx=cx; _ap.ly=cy; _ap.panned=true;
+    }
+  }
+});
+stage.on('mouseup touchend',e=>{
+  stage.draggable(false);
+  _ap.on=false;
 });
 stage.on('contextmenu',e=>{
   e.evt.preventDefault();
   if(S.mode==='measure'){
-    // Right-click clears the current measurement
     S.measurePts=[];S.measureLive=null;drawMeasureUI();return;
   }
   if(S.mode==='draw'&&S.vertices.length>=2)setMode('select');
 });
 stage.on('wheel',e=>{
-  if(S.aerial){e.evt.preventDefault();return;} // Leaflet handles zoom
   e.evt.preventDefault();
+  if(S.aerial&&S.leaflet){
+    // Scroll zooms the Leaflet map around the cursor
+    const rect=S.leaflet.getContainer().getBoundingClientRect();
+    const pt=L.point(e.evt.clientX-rect.left, e.evt.clientY-rect.top);
+    S.leaflet.setZoomAround(pt, S.leaflet.getZoom()+(e.evt.deltaY<0?1:-1));
+    return;
+  }
   const old=stage.scaleX(), ptr=stage.getPointerPosition();
   const wb={x:(ptr.x-stage.x())/old,y:(ptr.y-stage.y())/old};
   const ns=Math.max(0.04,Math.min(60,old*(e.evt.deltaY<0?1.13:0.88)));
   stage.scale({x:ns,y:ns}); stage.x(ptr.x-wb.x*ns); stage.y(ptr.y-wb.y*ns);
 });
-stage.on('mousedown touchstart',()=>{if(S.mode==='pan'&&!S.aerial)stage.draggable(true);});
-stage.on('mouseup touchend',()=>{stage.draggable(false);});
-// Middle-mouse pan
+// Middle-mouse pan (non-aerial)
 let mm={drag:false,a:{x:0,y:0},b:{x:0,y:0}};
 document.getElementById('stage-container').addEventListener('mousedown',e=>{if(e.button===1){e.preventDefault();mm.drag=true;mm.a={x:e.clientX,y:e.clientY};mm.b={x:stage.x(),y:stage.y()};}});
 document.addEventListener('mousemove',e=>{if(mm.drag){stage.x(mm.b.x+e.clientX-mm.a.x);stage.y(mm.b.y+e.clientY-mm.a.y);}});
@@ -1619,8 +1648,8 @@ function setMode(m){
   document.getElementById('stage-container').style.pointerEvents=(S.aerial&&m==='pan')?'none':'auto';
   // Explicitly control Leaflet dragging so it doesn't interfere in non-pan modes
   if(S.leaflet){
-    if(m==='pan'){S.leaflet.dragging.enable();S.leaflet.scrollWheelZoom.enable();}
-    else{S.leaflet.dragging.disable();S.leaflet.scrollWheelZoom.disable();}
+    if(m==='pan'){S.leaflet.dragging.enable();}
+    else{S.leaflet.dragging.disable();}
   }
   setStatus(MODE_HELP[m]||'');
   mainLayer.find('Circle').forEach(c=>c.draggable(m==='select'));

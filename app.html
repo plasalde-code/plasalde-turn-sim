@@ -1544,61 +1544,62 @@ stage.on('click tap',e=>{
     drawMeasureUI();
   }
 });
-// ── Aerial free-form pan state ─────────────────────────────────
+// ── Aerial free-form pan — raw DOM events (most reliable) ──────
 let _ap={on:false,lx:0,ly:0,panned:false};
+const _sc=document.getElementById('stage-container');
 
-stage.on('mousedown touchstart',e=>{
-  if(S.mode==='pan'&&!S.aerial) stage.draggable(true);
-  // Begin aerial drag-to-pan tracking for draw/select/measure modes
-  if(S.aerial&&S.leaflet&&(e.evt.button===0||e.evt.touches)){
-    _ap.on=true; _ap.lx=e.evt.clientX||(e.evt.touches&&e.evt.touches[0].clientX)||0;
-    _ap.ly=e.evt.clientY||(e.evt.touches&&e.evt.touches[0].clientY)||0; _ap.panned=false;
+_sc.addEventListener('mousedown',e=>{
+  if(!S.aerial||!S.leaflet||e.button!==0) return;
+  // In select mode, skip pan if user is clicking on a vertex
+  if(S.mode==='select'){
+    const pos=stage.getPointerPosition();
+    if(pos){
+      let onV=false;
+      S.vertices.forEach(v=>{const dx=v.x-pos.x,dy=v.y-pos.y;if(Math.sqrt(dx*dx+dy*dy)<22)onV=true;});
+      if(onV) return; // let Konva handle vertex drag
+    }
+  }
+  _ap.on=true; _ap.lx=e.clientX; _ap.ly=e.clientY; _ap.panned=false;
+});
+document.addEventListener('mousemove',e=>{
+  if(!_ap.on||!S.aerial||!S.leaflet||S.mode==='pan') return;
+  const dx=e.clientX-_ap.lx, dy=e.clientY-_ap.ly;
+  if(Math.abs(dx)>4||Math.abs(dy)>4){
+    S.leaflet.panBy([-dx,-dy],{animate:false});
+    _ap.lx=e.clientX; _ap.ly=e.clientY; _ap.panned=true;
   }
 });
-stage.on('mousemove',e=>{
+document.addEventListener('mouseup',()=>{_ap.on=false;});
+
+stage.on('mousedown touchstart',()=>{if(S.mode==='pan'&&!S.aerial)stage.draggable(true);});
+stage.on('mousemove',()=>{
   if(S.mode==='measure'&&S.measurePts.length>0){
     S.measureLive=toWorld(stage.getPointerPosition());
     drawMeasureUI();
   }
-  // Aerial drag-to-pan: drag pans the map, click adds node / selects
-  if(_ap.on&&S.aerial&&S.leaflet&&S.mode!=='pan'){
-    const cx=e.evt.clientX||(e.evt.touches&&e.evt.touches[0].clientX)||_ap.lx;
-    const cy=e.evt.clientY||(e.evt.touches&&e.evt.touches[0].clientY)||_ap.ly;
-    const dx=cx-_ap.lx, dy=cy-_ap.ly;
-    if(Math.abs(dx)>4||Math.abs(dy)>4){
-      S.leaflet.panBy([-dx,-dy],{animate:false});
-      _ap.lx=cx; _ap.ly=cy; _ap.panned=true;
-    }
-  }
 });
-stage.on('mouseup touchend',e=>{
-  stage.draggable(false);
-  _ap.on=false;
-});
+stage.on('mouseup touchend',()=>{stage.draggable(false);});
 stage.on('contextmenu',e=>{
   e.evt.preventDefault();
-  if(S.mode==='measure'){
-    S.measurePts=[];S.measureLive=null;drawMeasureUI();return;
-  }
+  if(S.mode==='measure'){S.measurePts=[];S.measureLive=null;drawMeasureUI();return;}
   if(S.mode==='draw'&&S.vertices.length>=2)setMode('select');
 });
 stage.on('wheel',e=>{
   e.evt.preventDefault();
   if(S.aerial&&S.leaflet){
-    // Scroll zooms the Leaflet map around the cursor
     const rect=S.leaflet.getContainer().getBoundingClientRect();
-    const pt=L.point(e.evt.clientX-rect.left, e.evt.clientY-rect.top);
-    S.leaflet.setZoomAround(pt, S.leaflet.getZoom()+(e.evt.deltaY<0?1:-1));
+    const pt=L.point(e.evt.clientX-rect.left,e.evt.clientY-rect.top);
+    S.leaflet.setZoomAround(pt,S.leaflet.getZoom()+(e.evt.deltaY<0?1:-1));
     return;
   }
-  const old=stage.scaleX(), ptr=stage.getPointerPosition();
+  const old=stage.scaleX(),ptr=stage.getPointerPosition();
   const wb={x:(ptr.x-stage.x())/old,y:(ptr.y-stage.y())/old};
   const ns=Math.max(0.04,Math.min(60,old*(e.evt.deltaY<0?1.13:0.88)));
   stage.scale({x:ns,y:ns}); stage.x(ptr.x-wb.x*ns); stage.y(ptr.y-wb.y*ns);
 });
 // Middle-mouse pan (non-aerial)
 let mm={drag:false,a:{x:0,y:0},b:{x:0,y:0}};
-document.getElementById('stage-container').addEventListener('mousedown',e=>{if(e.button===1){e.preventDefault();mm.drag=true;mm.a={x:e.clientX,y:e.clientY};mm.b={x:stage.x(),y:stage.y()};}});
+_sc.addEventListener('mousedown',e=>{if(e.button===1){e.preventDefault();mm.drag=true;mm.a={x:e.clientX,y:e.clientY};mm.b={x:stage.x(),y:stage.y()};}});
 document.addEventListener('mousemove',e=>{if(mm.drag){stage.x(mm.b.x+e.clientX-mm.a.x);stage.y(mm.b.y+e.clientY-mm.a.y);}});
 document.addEventListener('mouseup',e=>{if(e.button===1)mm.drag=false;});
 

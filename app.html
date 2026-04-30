@@ -2405,8 +2405,9 @@ document.addEventListener('keydown',e=>{
 async function searchLocation(){
   const q=document.getElementById('loc-input').value.trim();
   if(!q||!S.leaflet) return;
-  // Try lat,lng format first
-  const ll=q.match(/^(-?\d+\.?\d*)[,\s]+(-?\d+\.?\d*)$/);
+  // Strip degree symbols and try lat,lng format
+  const clean=q.replace(/°/g,'').trim();
+  const ll=clean.match(/^(-?\d+\.?\d*)[,\s]+(-?\d+\.?\d*)$/);
   if(ll){S.leaflet.setView([parseFloat(ll[1]),parseFloat(ll[2])],17);return;}
   try{
     const res=await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=1`,{headers:{'Accept-Language':'en'}});

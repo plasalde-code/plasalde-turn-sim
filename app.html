@@ -582,73 +582,131 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#111827;color:#e5
 'use strict';
 
 // ══════════════════════════════════════════════════════════════════
-// 1. AASHTO VEHICLE LIBRARY
-//    All dimensions in FEET (AASHTO Green Book, US Customary)
+// 1. VEHICLE LIBRARY
+//    All dimensions in FEET
 //
 //  W    = overall vehicle width
-//  L    = overall vehicle length
-//  Fo   = front overhang (front axle to front bumper)
-//  Ro   = rear overhang (last axle to rear bumper)
+//  L    = overall vehicle length (stated — display only)
+//  Fo   = front overhang (front bumper to front axle)
+//  Ro   = rear overhang (last axle to rear bumper / trailer tail)
 //  TW   = track width (wheel center to wheel center, outer tires)
-//  Rmin = minimum turning radius at front axle centerline [ft]
-//  L1   = front axle to articulation/pivot point (5th wheel for WB)
-//  L2   = pivot point to rear-most axle (0 for rigid vehicles)
-//  Fwd  = trailer body extends this far AHEAD of 5th wheel (for body outline)
+//  Rmin = minimum turning radius at front outside wheel [ft]
+//  L1   = front axle → pivot/kingpin (tractor WB for semis; tow-vehicle front-axle→hitch for tow-behind)
+//  L2   = pivot/kingpin → trailer rear axle  (0 = rigid)  [KPRA for semis]
+//  Fwd  = how far trailer nose extends AHEAD of kingpin into tractor space (body drawing only)
+//         back-calculated as (Fo+L1+L2+Ro) − L so the drawn body matches stated length
 // ══════════════════════════════════════════════════════════════════
 const VEHICLES = [
-  { id:'P',    cat:'Passenger',    name:'Passenger Car',         code:'P',
+  // ── Passenger ─────────────────────────────────────────────────────────────
+  { id:'P',     cat:'Passenger',   name:'Passenger Car',              code:'P',
     color:'#22c55e', W:7.0,  L:19.0,  Fo:3.0,  Ro:5.0,  TW:6.0,  Rmin:24.0,
-    L1:11.0,  L2:0,    Fwd:0 },
+    L1:11.0, L2:0,    Fwd:0 },
 
-  { id:'SU',   cat:'Single Unit',  name:'Single Unit Truck',     code:'SU',
-    color:'#f97316', W:8.0,  L:35.0,  Fo:4.0,  Ro:6.0,  TW:7.0,  Rmin:42.0,
-    L1:20.0,  L2:0,    Fwd:0 },
+  { id:'MH',    cat:'Passenger',   name:'Motorhome',                  code:'MH',
+    color:'#15803d', W:8.5,  L:40.0,  Fo:6.0,  Ro:8.0,  TW:7.5,  Rmin:40.0,
+    L1:26.0, L2:0,    Fwd:0 },
 
-  { id:'BUS',  cat:'Bus',          name:'City Transit Bus',      code:'BUS',
-    color:'#3b82f6', W:8.5,  L:40.0,  Fo:7.0,  Ro:9.0,  TW:7.5,  Rmin:42.0,
-    L1:24.0,  L2:0,    Fwd:0 },
+  // P/T: car (WB=11, Ro_car=5) + trailer. L1=front-axle→hitch (=11+2=13, hitch 2ft past rear axle).
+  // Total: Fo+L1+L2+Ro = 3+13+20+4 = 40 ✓
+  { id:'PT',    cat:'Passenger',   name:'Car + Trailer',              code:'P/T',
+    color:'#4ade80', W:8.0,  L:40.0,  Fo:3.0,  Ro:4.0,  TW:6.5,  Rmin:35.0,
+    L1:13.0, L2:20.0, Fwd:0 },
 
-  { id:'ABUS', cat:'Bus',          name:'Articulated Bus',       code:'A-BUS',
-    color:'#06b6d4', W:8.5,  L:60.0,  Fo:7.0,  Ro:10.0, TW:7.5,  Rmin:42.0,
-    L1:18.0,  L2:24.0, Fwd:2.0 },
+  // P/B: same car, longer trailer. 3+12+25+5 = 45 ✓
+  { id:'PB',    cat:'Passenger',   name:'Car + Boat Trailer',         code:'P/B',
+    color:'#86efac', W:8.0,  L:45.0,  Fo:3.0,  Ro:5.0,  TW:6.5,  Rmin:35.0,
+    L1:12.0, L2:25.0, Fwd:0 },
 
-  { id:'WB12', cat:'Semitrailer',  name:'WB-12 (WB-40)',         code:'WB-12',
-    color:'#ef4444', W:8.5,  L:55.0,  Fo:4.0,  Ro:3.0,  TW:8.0,  Rmin:42.0,
-    L1:13.0,  L2:27.0, Fwd:2.0 },
+  // MH/B: MH (40ft) towing compact boat trailer (~15ft). L1=34 (front-axle→hitch at MH rear bumper).
+  // Total: 6+34+9+6 = 55 ✓
+  { id:'MHB',   cat:'Passenger',   name:'Motorhome + Boat',           code:'MH/B',
+    color:'#059669', W:8.5,  L:55.0,  Fo:6.0,  Ro:6.0,  TW:7.5,  Rmin:45.0,
+    L1:34.0, L2:9.0,  Fwd:0 },
 
-  { id:'WB15', cat:'Semitrailer',  name:'WB-15 (WB-50)',         code:'WB-15',
-    color:'#ec4899', W:8.5,  L:65.0,  Fo:4.0,  Ro:3.0,  TW:8.0,  Rmin:45.0,
-    L1:16.0,  L2:34.0, Fwd:2.0 },
+  // ── Single Unit ───────────────────────────────────────────────────────────
+  { id:'SU30',  cat:'Single Unit', name:'Single Unit Truck (30ft)',   code:'SU-30',
+    color:'#f97316', W:8.5,  L:30.0,  Fo:4.0,  Ro:6.0,  TW:7.5,  Rmin:42.0,
+    L1:20.0, L2:0,    Fwd:0 },
 
-  { id:'WB19', cat:'Semitrailer',  name:'WB-19 (WB-62)',         code:'WB-19',
-    color:'#a855f7', W:8.5,  L:73.5,  Fo:4.0,  Ro:3.0,  TW:8.0,  Rmin:45.0,
-    L1:20.0,  L2:42.0, Fwd:3.0 },
+  { id:'SU40',  cat:'Single Unit', name:'Single Unit Truck (40ft)',   code:'SU-40',
+    color:'#fb923c', W:8.5,  L:40.0,  Fo:4.0,  Ro:11.0, TW:7.5,  Rmin:50.0,
+    L1:25.0, L2:0,    Fwd:0 },
 
-  { id:'WB20', cat:'Semitrailer',  name:'WB-20 (WB-65)',         code:'WB-20',
-    color:'#8b5cf6', W:8.5,  L:73.5,  Fo:4.0,  Ro:4.0,  TW:8.0,  Rmin:45.0,
-    L1:21.5,  L2:43.5, Fwd:3.0 },
+  // ── Bus ───────────────────────────────────────────────────────────────────
+  { id:'BUS40', cat:'Bus',         name:'Transit Bus (40ft)',         code:'BUS-40',
+    color:'#3b82f6', W:8.5,  L:40.0,  Fo:7.0,  Ro:8.0,  TW:7.5,  Rmin:42.0,
+    L1:25.0, L2:0,    Fwd:0 },
 
-  { id:'FIRE', cat:'Emergency',    name:'Fire Engine',           code:'FIRE',
+  { id:'BUS45', cat:'Bus',         name:'Transit Bus (45ft)',         code:'BUS-45',
+    color:'#60a5fa', W:8.5,  L:45.0,  Fo:7.0,  Ro:9.5,  TW:7.5,  Rmin:45.0,
+    L1:28.5, L2:0,    Fwd:0 },
+
+  { id:'CBUS',  cat:'Bus',         name:'City Transit Bus',           code:'CITY',
+    color:'#2563eb', W:8.5,  L:40.0,  Fo:7.0,  Ro:8.0,  TW:7.5,  Rmin:42.0,
+    L1:25.0, L2:0,    Fwd:0 },
+
+  { id:'SB36',  cat:'Bus',         name:'School Bus (36ft)',          code:'S-B36',
+    color:'#eab308', W:8.0,  L:36.0,  Fo:6.0,  Ro:7.0,  TW:7.0,  Rmin:39.0,
+    L1:23.0, L2:0,    Fwd:0 },
+
+  { id:'SB40',  cat:'Bus',         name:'School Bus (40ft)',          code:'S-B40',
+    color:'#ca8a04', W:8.0,  L:40.0,  Fo:6.0,  Ro:8.0,  TW:7.0,  Rmin:39.0,
+    L1:26.0, L2:0,    Fwd:0 },
+
+  // A-BUS: two 20ft WB sections. L2=23 so Fo+L1+L2+Ro = 7+20+23+10 = 60 ✓
+  { id:'ABUS',  cat:'Bus',         name:'Articulated Bus',            code:'A-BUS',
+    color:'#06b6d4', W:8.5,  L:60.0,  Fo:7.0,  Ro:10.0, TW:7.5,  Rmin:39.0,
+    L1:20.0, L2:23.0, Fwd:0 },
+
+  // ── Semitrailer ───────────────────────────────────────────────────────────
+  // Fwd = (Fo+L1+L2+Ro)−L = trailer nose under tractor (keeps body outline at stated length)
+  // WB-40: Fwd = 4+15+30+5−45.5 = 8.5
+  { id:'WB40',  cat:'Semitrailer', name:'WB-40 Semitrailer',          code:'WB-40',
+    color:'#ef4444', W:8.5,  L:45.5,  Fo:4.0,  Ro:5.0,  TW:8.0,  Rmin:40.0,
+    L1:15.0, L2:30.0, Fwd:8.5 },
+
+  // WB-50: Fwd = 4+20+36+6−55 = 11
+  { id:'WB50',  cat:'Semitrailer', name:'WB-50 Semitrailer',          code:'WB-50',
+    color:'#f43f5e', W:8.5,  L:55.0,  Fo:4.0,  Ro:6.0,  TW:8.0,  Rmin:45.0,
+    L1:20.0, L2:36.0, Fwd:11.0 },
+
+  // WB-62: Fwd = 4+20+40+8−69.5 = 2.5
+  { id:'WB62',  cat:'Semitrailer', name:'WB-62 Semitrailer',          code:'WB-62',
+    color:'#ec4899', W:8.5,  L:69.5,  Fo:4.0,  Ro:8.0,  TW:8.0,  Rmin:45.0,
+    L1:20.0, L2:40.0, Fwd:2.5 },
+
+  // WB-65: Fwd = 4+20+41+8−70 = 3
+  { id:'WB65',  cat:'Semitrailer', name:'WB-65 Semitrailer',          code:'WB-65',
+    color:'#a855f7', W:8.5,  L:70.0,  Fo:4.0,  Ro:8.0,  TW:8.0,  Rmin:45.0,
+    L1:20.0, L2:41.0, Fwd:3.0 },
+
+  // WB-67: Fwd = 4+23+41+10−73.5 = 4.5
+  { id:'WB67',  cat:'Semitrailer', name:'WB-67 Semitrailer',          code:'WB-67',
+    color:'#8b5cf6', W:8.5,  L:73.5,  Fo:4.0,  Ro:10.0, TW:8.0,  Rmin:45.0,
+    L1:23.0, L2:41.0, Fwd:4.5 },
+
+  // Double / Triple trailers — single-articulation approximation (actual combinations have 2+ pivot pts)
+  // L2 back-calculated: L−Fo−L1−Ro; Ro estimated at 4ft for rear unit.
+  { id:'WB67D', cat:'Semitrailer', name:'WB-67D Double Trailer',      code:'WB-67D',
+    color:'#dc2626', W:8.5,  L:95.0,  Fo:4.0,  Ro:4.0,  TW:8.0,  Rmin:45.0,
+    L1:23.0, L2:64.0, Fwd:0 },
+
+  { id:'WB92D', cat:'Semitrailer', name:'WB-92D Double Trailer',      code:'WB-92D',
+    color:'#b91c1c', W:8.5,  L:92.0,  Fo:4.0,  Ro:4.0,  TW:8.0,  Rmin:47.5,
+    L1:23.0, L2:61.0, Fwd:0 },
+
+  { id:'WB100T',cat:'Semitrailer', name:'WB-100T Triple Trailer',     code:'WB-100T',
+    color:'#991b1b', W:8.5,  L:100.0, Fo:4.0,  Ro:4.0,  TW:8.0,  Rmin:47.5,
+    L1:23.0, L2:69.0, Fwd:0 },
+
+  { id:'WB109D',cat:'Semitrailer', name:'WB-109D Turnpike Double',    code:'WB-109D',
+    color:'#7f1d1d', W:8.5,  L:109.0, Fo:4.0,  Ro:4.0,  TW:8.0,  Rmin:50.0,
+    L1:23.0, L2:78.0, Fwd:0 },
+
+  // ── Emergency ─────────────────────────────────────────────────────────────
+  { id:'FIRE',  cat:'Emergency',   name:'Fire Engine',                code:'FIRE',
     color:'#f43f5e', W:8.5,  L:37.0,  Fo:5.0,  Ro:6.0,  TW:7.5,  Rmin:38.0,
-    L1:18.0,  L2:0,    Fwd:0 },
-
-  // ── Extended / Heavy Vehicles ─────────────────────────────────────────
-  { id:'LT80', cat:'Semitrailer',  name:'Long Semitrailer (80ft)',code:'LT-80',
-    color:'#dc2626', W:8.5,  L:100.0, Fo:4.0,  Ro:3.0,  TW:8.0,  Rmin:55.0,
-    L1:22.0,  L2:65.0, Fwd:3.0 },
-
-  { id:'LOWB', cat:'Semitrailer',  name:'Low Boy (53ft Trailer)', code:'L-BOY',
-    color:'#0891b2', W:10.0, L:73.0,  Fo:4.0,  Ro:3.0,  TW:9.0,  Rmin:50.0,
-    L1:16.0,  L2:45.0, Fwd:2.0 },
-
-  // ── Utility / Work ────────────────────────────────────────────────────
-  { id:'BUCK', cat:'Utility',      name:'Utility Bucket Truck',  code:'UTL',
-    color:'#ca8a04', W:8.0,  L:32.0,  Fo:4.0,  Ro:7.0,  TW:7.0,  Rmin:40.0,
-    L1:18.0,  L2:0,    Fwd:0 },
-
-  { id:'PKT',  cat:'Passenger',    name:'Pickup with Trailer',   code:'P+T',
-    color:'#16a34a', W:7.5,  L:36.0,  Fo:4.0,  Ro:3.0,  TW:7.0,  Rmin:28.0,
-    L1:14.0,  L2:14.0, Fwd:1.0 },
+    L1:18.0, L2:0,    Fwd:0 },
 ];
 
 // ══════════════════════════════════════════════════════════════════
@@ -658,7 +716,7 @@ const S = {
   mode:'draw',
   vertices:[],      // [{id,x,y,radius}] — x,y world px; radius feet
   selId:null,
-  vehicle: VEHICLES.find(v=>v.id==='SU'),
+  vehicle: VEHICLES.find(v=>v.id==='SU30'),
   ppm:null,         // pixels per meter (null = uncalibrated)
   estPpm:null,      // auto-estimated ppm, locked once path is wide enough
   aerial:false,     // aerial imagery mode

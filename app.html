@@ -151,13 +151,13 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#111827;color:#e5
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3l14 9-7 1-4 7L5 3z"/></svg>
       Select
     </button>
+    <button class="tbtn" id="tbtn-pan" onclick="setMode('pan')" title="Pan / drag map (P)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 9l-3 3 3 3M9 5l3-3 3 3M15 19l-3 3-3-3M19 9l3 3-3 3M12 12v.01"/><path d="M3 12h18M12 3v18"/></svg>
+      Pan
+    </button>
     <button class="tbtn" id="tbtn-scale" onclick="startCalibrate()" title="Set drawing scale">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
       Scale
-    </button>
-    <button class="tbtn" id="tbtn-pan" onclick="setMode('pan')" title="Pan canvas (P)">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 9l-3 3 3 3M9 5l3-3 3 3M15 19l-3 3-3-3M19 9l3 3-3 3M2 12h20M12 2v20"/></svg>
-      Pan
     </button>
     <button class="tbtn" id="tbtn-measure" onclick="setMode('measure')" title="Measure distances (M)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12h20M2 12l4-4M2 12l4 4M22 12l-4-4M22 12l-4 4M12 7v2M12 15v2M7 9v1M17 9v1"/></svg>

@@ -2062,6 +2062,9 @@ function toggleAerial(){
     bgLayer.destroyChildren(); bgLayer.batchDraw();
     render();
     document.getElementById('tile-sel').style.display='inline-block';
+    // Disable Scale button — aerial mode derives scale from map zoom automatically
+    const scaleBtn=document.getElementById('tbtn-scale');
+    scaleBtn.style.opacity='0.35'; scaleBtn.style.pointerEvents='none'; scaleBtn.title='Scale auto-set by map zoom';
     setStatus('Aerial mode — pan/zoom the map, then Draw your path');
   } else {
     btn.style.background=''; btn.style.color=''; btn.style.borderColor='';
@@ -2078,6 +2081,9 @@ function toggleAerial(){
     kmlLayer.destroyChildren(); kmlLayer.batchDraw();
     updateScaleDisplay();
     render();
+    // Re-enable Scale button
+    const scaleBtn=document.getElementById('tbtn-scale');
+    scaleBtn.style.opacity=''; scaleBtn.style.pointerEvents=''; scaleBtn.title='Set drawing scale';
     setStatus('Aerial off — load a PDF background or draw on blank canvas');
   }
 }
@@ -2331,6 +2337,10 @@ function updateScaleBar(){
 // 15. SCALE CALIBRATION
 // ══════════════════════════════════════════════════════════════════
 function startCalibrate(){
+  if(S.aerial){
+    setStatus('Scale tool is disabled in Aerial mode — scale is set automatically from the map zoom level.');
+    return;
+  }
   S.calActive=true;S.calP1=null;S.calP2=null;
   const m=document.getElementById('scale-modal');m.style.display='block';
   document.getElementById('mstep').textContent='Step 1 of 2 — click first point on canvas';

@@ -897,7 +897,10 @@ function computeCurve(prev,curr,next,R_px){
 // 6. DENSE PATH POINT COMPUTATION
 //    Each pt: {x,y, tx,ty (unit tangent), curvR, isLeft}
 // ══════════════════════════════════════════════════════════════════
-function computePathPoints(verts,curves){
+function computePathPoints(verts,curves,lineStep,arcStep){
+  // lineStep / arcStep: pixels between samples (smaller = smoother, more points)
+  // defaults are tuned for screen rendering; pass smaller values for export
+  const LS=lineStep||15, AS=arcStep||8;
   if(verts.length<2) return [];
   const pts=[], n=verts.length;
   const push=(x,y,tx,ty,curvR,isLeft)=>pts.push({x,y,tx,ty,curvR:curvR||0,isLeft:!!isLeft});
@@ -905,7 +908,7 @@ function computePathPoints(verts,curves){
   function addLine(start,end){
     const d=vnorm(vsub(end,start)), L=vdist(start,end);
     if(L<0.5) return;
-    const N=Math.max(1,Math.round(L/15));
+    const N=Math.max(1,Math.round(L/LS));
     for(let i=1;i<=N;i++){ const t=i/N; push(start.x+d.x*L*t,start.y+d.y*L*t,d.x,d.y,0,false); }
   }
 
@@ -915,7 +918,7 @@ function computePathPoints(verts,curves){
     const ea=Math.atan2(ec.y-center.y,ec.x-center.x);
     let sw=ea-sa;
     if(isLeft){ if(sw>0) sw-=2*Math.PI; } else { if(sw<0) sw+=2*Math.PI; }
-    const N=Math.max(10,Math.round(Math.abs(sw)*R/8));
+    const N=Math.max(10,Math.round(Math.abs(sw)*R/AS));
     for(let i=1;i<=N;i++){
       const a=sa+sw*(i/N);
       const px=center.x+R*Math.cos(a), py=center.y+R*Math.sin(a);
@@ -1332,7 +1335,7 @@ function render(){
   swLayer.destroyChildren();
 
   const vs=S.vertices;
-  if(vs.length<1){mainLayer.batchDraw();swLayer.batchDraw();return;}
+  if(vs.length<1){mainLayer.batchDraw();swLayer.batchDraw();updateVehicleStates();updateTurnCheck(vs,null);return;}
 
   // ALWAYS run kinematic simulation — use calibrated scale if set,
   // otherwise estimate from path size so vehicle proportions are real.
@@ -2725,7 +2728,9 @@ function getExportData(){
     if(i===0||i===vs.length-1||v.radius<=0) return null;
     return computeCurve(vs[i-1],v,vs[i+1],v.radius*effectivePpm);
   });
-  const pathPts=computePathPoints(vs,curves);
+  // High-resolution path for export: 3px line step, 2px arc step
+  // (vs. 15/8 for rendering) — produces smooth curves in KML/DXF
+  const pathPts=computePathPoints(vs,curves,3,2);
   if(pathPts.length<2) return null;
   const frames=simulateAxles(pathPts,S.vehicle,effectivePpm);
   const tracks=computeWheelTracks(frames,S.vehicle,effectivePpm,pathPts);
@@ -2867,14 +2872,27 @@ function exportKML(){
   <name>Vehicle Turn — ${S.vehicle.name}</name>
   <description>Exported from Vehicle Turn Analysis. Vehicle: ${S.vehicle.name} (${S.vehicle.code})</description>\n`;
 
+  // Deduplicate consecutive near-identical points (< 0.5 px apart)
+  // to avoid micro-jags in the exported polygon.
+  function dedupe(arr){
+    const out=[arr[0]];
+    for(let i=1;i<arr.length;i++){
+      const prev=out[out.length-1];
+      if(Math.abs(arr[i].x-prev.x)>0.5||Math.abs(arr[i].y-prev.y)>0.5) out.push(arr[i]);
+    }
+    return out;
+  }
+  const leftSmooth=dedupe(env.leftB);
+  const rightSmooth=dedupe(env.rightB);
+
   // Export: vehicle swept outline edges + filled swept envelope polygon only
-  if(env.leftB.length>2){
+  if(leftSmooth.length>2){
     // Outer boundary lines (left and right edge of swept path)
-    kml+=lineplacemark('Swept Outline - Left',env.leftB,kFull,2.5);
-    kml+=lineplacemark('Swept Outline - Right',env.rightB,kFull,2.5);
+    kml+=lineplacemark('Swept Outline - Left',leftSmooth,kFull,2.5);
+    kml+=lineplacemark('Swept Outline - Right',rightSmooth,kFull,2.5);
 
     // Filled swept envelope polygon
-    const ring=[...env.leftB,...[...env.rightB].reverse(),env.leftB[0]];
+    const ring=[...leftSmooth,...[...rightSmooth].reverse(),leftSmooth[0]];
     const coords=ring.map(toLngLat).join('\n');
     kml+=`  <Placemark><name>Swept Envelope — ${S.vehicle.name}</name>
     <Style>

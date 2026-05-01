@@ -34,7 +34,9 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#111827;color:#e5
 .hbtn:hover{background:#374151;color:#e5e7eb}
 .hbtn svg{width:14px;height:14px;flex-shrink:0}
 #app{display:flex;flex:1;overflow:hidden}
-#sidebar{width:256px;background:#1f2937;border-right:1px solid #374151;display:flex;flex-direction:column;overflow-y:auto;flex-shrink:0}
+#sidebar{width:256px;background:#1f2937;border-right:1px solid #374151;display:flex;flex-direction:column;overflow:hidden;flex-shrink:0}
+#sidebar-tools{flex-shrink:0;background:#1f2937;border-bottom:2px solid #374151}
+#sidebar-body{flex:1;overflow-y:auto}
 #canvas-wrap{flex:1;position:relative;overflow:hidden;background:#0f172a}
 .s-sec{padding:10px 12px;border-bottom:1px solid #374151}
 .s-sec h3{font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#4b5563;margin-bottom:8px;font-weight:600}
@@ -74,6 +76,14 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#111827;color:#e5
 .lbox{flex-shrink:0;width:28px;height:8px;border-radius:2px}
 /* Status */
 #status{position:absolute;bottom:10px;left:10px;background:rgba(31,41,55,.9);border:1px solid #374151;border-radius:7px;padding:5px 10px;font-size:11px;color:#6b7280;pointer-events:none;backdrop-filter:blur(4px);max-width:420px}
+/* PDF DOM overlay handles */
+#pdf-overlay{display:none;position:absolute;inset:0;z-index:5;pointer-events:none}
+#pdf-box{position:absolute;box-sizing:border-box;border:2px solid #f59e0b;cursor:move;transform-origin:center center}
+#pdf-box.locked{border-color:transparent;cursor:default}
+#pdf-cnv{display:block;width:100%;height:100%}
+.ph{position:absolute;width:18px;height:18px;background:#f59e0b;border:2px solid #78350f;border-radius:3px;pointer-events:auto;z-index:2}
+#pdf-rot-btn{position:absolute;top:-50px;left:calc(50% - 11px);width:22px;height:22px;border-radius:50%;background:#f59e0b;border:2px solid #78350f;cursor:grab;pointer-events:auto;display:flex;align-items:center;justify-content:center;font-size:13px;z-index:2;user-select:none}
+#pdf-rot-line{position:absolute;top:-40px;left:calc(50% - 1px);width:2px;height:40px;background:#f59e0b;pointer-events:none}
 /* Modals */
 .overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);display:flex;align-items:center;justify-content:center;z-index:200}
 .overlay.hide{display:none}
@@ -183,7 +193,8 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#111827;color:#e5
 
 <div id="app">
   <aside id="sidebar">
-    <div class="s-sec">
+    <!-- ── Tools: always visible at top, never scrolls ── -->
+    <div id="sidebar-tools" class="s-sec">
       <h3>Tools</h3>
       <div id="tool-grid">
         <button class="tbtn active" id="tbtn-draw" onclick="setMode('draw')">
@@ -209,6 +220,8 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#111827;color:#e5
       </div>
     </div>
 
+    <!-- ── Everything else scrolls independently ── -->
+    <div id="sidebar-body">
     <div class="s-sec">
       <h3>Design Vehicle</h3>
       <div id="vlist"></div>
@@ -347,11 +360,28 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#111827;color:#e5
         <button id="u-m" style="display:none" onclick="setUnits('m')">Meters</button>
       </div>
     </div>
+    </div><!-- end sidebar-body -->
   </aside>
 
   <div id="canvas-wrap">
     <div id="map-container" style="position:absolute;inset:0;z-index:0;display:none"></div>
     <div id="stage-container" style="position:absolute;inset:0;z-index:1"></div>
+    <!-- PDF DOM overlay — sits above Konva, below UI overlays -->
+    <div id="pdf-overlay">
+      <div id="pdf-box">
+        <canvas id="pdf-cnv"></canvas>
+        <div class="ph" data-d="nw" style="top:-9px;left:-9px;cursor:nw-resize"></div>
+        <div class="ph" data-d="n"  style="top:-9px;left:calc(50% - 9px);cursor:n-resize"></div>
+        <div class="ph" data-d="ne" style="top:-9px;right:-9px;cursor:ne-resize"></div>
+        <div class="ph" data-d="e"  style="top:calc(50% - 9px);right:-9px;cursor:e-resize"></div>
+        <div class="ph" data-d="se" style="bottom:-9px;right:-9px;cursor:se-resize"></div>
+        <div class="ph" data-d="s"  style="bottom:-9px;left:calc(50% - 9px);cursor:s-resize"></div>
+        <div class="ph" data-d="sw" style="bottom:-9px;left:-9px;cursor:sw-resize"></div>
+        <div class="ph" data-d="w"  style="top:calc(50% - 9px);left:-9px;cursor:w-resize"></div>
+        <div id="pdf-rot-line"></div>
+        <div id="pdf-rot-btn">↻</div>
+      </div>
+    </div>
     <div id="status">Ready — Load a PDF background, set scale, then draw the vehicle path</div>
     <div id="min-warn">⚠ Curve tighter than min R (<span id="min-r-val"></span>) for <span id="min-v-name"></span></div>
     <div id="scale-bar" style="display:none;position:absolute;bottom:14px;right:14px;background:rgba(31,41,55,.88);border:1px solid #374151;border-radius:7px;padding:6px 10px;pointer-events:none;backdrop-filter:blur(4px)">
@@ -633,9 +663,8 @@ const S = {
   estPpm:null,      // auto-estimated ppm, locked once path is wide enough
   aerial:false,     // aerial imagery mode
   leaflet:null,     // Leaflet map instance
-  pdfOverlay:null,  // Konva.Image for aerial PDF overlay
-  pdfXformer:null,  // Konva.Transformer for overlay
-  pdfGeo:null,      // geographic anchor {anchorLatLng, widthM, heightM, rotation}
+  pdfOverlay:null,  // true when DOM PDF overlay is active
+  pdfGeo:null,      // geographic anchor {centerLatLng, widthFt, heightFt, rotation} when locked
   units:'ft',   // always feet — all internal dimensions in ft
   reverse:false,       // reverse maneuver mode
   reverseSpeed:5,      // mph — operational reverse speed (max 15)
@@ -1780,9 +1809,10 @@ function toggleAerial(){
     btn.style.background=''; btn.style.color=''; btn.style.borderColor='';
     mapEl.style.display='none';
     document.getElementById('tile-sel').style.display='none';
-    mainLayer.listening(true); swLayer.listening(true); kmlLayer.listening(true); uiLayer.listening(true);
+    // Hide DOM PDF overlay and reset all overlay state
+    document.getElementById('pdf-overlay').style.display='none';
     pdfLayer.destroyChildren(); pdfLayer.batchDraw();
-    S.pdfOverlay=null; S.pdfXformer=null; S.pdfGeo=null;
+    S.pdfOverlay=null; S.pdfGeo=null; S._pdfRot=0;
     document.getElementById('overlay-panel').style.display='none';
     // Restore manual scale/ppm
     S.ppm=null; S.estPpm=null;
@@ -1855,15 +1885,8 @@ _sc.addEventListener('mousedown',e=>{
   //    PDF drag / scale / rotate without the map fighting the gesture.
   //    (S.pdfGeo is null when PDF is unlocked; set when locked.)
   if(S.pdfOverlay && !S.pdfGeo) return;
-  // ── Select mode: skip pan when pointer is on a vertex so Konva can drag it.
-  if(S.mode==='select'){
-    const pos=stage.getPointerPosition();
-    if(pos){
-      let onV=false;
-      S.vertices.forEach(v=>{const dx=v.x-pos.x,dy=v.y-pos.y;if(Math.sqrt(dx*dx+dy*dy)<22)onV=true;});
-      if(onV) return;
-    }
-  }
+  // Select mode: never pan — let stage click handler handle vertex picking/deselect
+  if(S.mode==='select') return;
   _ap.on=true; _ap.lx=e.clientX; _ap.ly=e.clientY; _ap.panned=false;
 });
 document.addEventListener('mousemove',e=>{
@@ -2197,47 +2220,34 @@ async function onFileSelected(evt){
 }
 function setBackground(img){
   if(S.aerial){
-    // ── Aerial mode: PDF as a draggable/scalable/rotatable overlay ──
-    pdfLayer.destroyChildren();
-    // Fit into ~60% of screen initially
+    // ── Aerial mode: DOM-based PDF overlay (completely outside Konva) ──
+    // Render PDF image to the #pdf-cnv canvas element
+    const cnv=document.getElementById('pdf-cnv');
+    cnv.width=img.width; cnv.height=img.height;
+    cnv.getContext('2d').drawImage(img,0,0);
+    // Initial size: fit 60% of screen, centered
     const fs=Math.min(CW/img.width,CH/img.height)*0.60;
-    const kImg=new Konva.Image({
-      image:img,
-      x:(CW-img.width*fs)/2, y:(CH-img.height*fs)/2,
-      width:img.width*fs, height:img.height*fs,
-      opacity:0.70, draggable:true, listening:true,
-    });
-    pdfLayer.add(kImg);
-    // Transformer for resize + rotate
-    if(S.pdfXformer) S.pdfXformer.destroy();
-    const tr=new Konva.Transformer({
-      nodes:[kImg],
-      keepRatio:false,   // allow non-proportional scaling (match real-world dims)
-      enabledAnchors:['top-left','top-center','top-right',
-                      'middle-left','middle-right',
-                      'bottom-left','bottom-center','bottom-right'],
-      rotateEnabled:true,
-      borderStroke:'#f59e0b', borderStrokeWidth:2,
-      anchorFill:'#f59e0b', anchorStroke:'#78350f', anchorStrokeWidth:2,
-      anchorSize:18,       // larger handles = much easier to grab
-      anchorCornerRadius:4,
-    });
-    // Suppress all other layers from stealing hit events while PDF is being adjusted
-    mainLayer.listening(false); swLayer.listening(false); kmlLayer.listening(false); uiLayer.listening(false);
-    pdfLayer.add(tr);
-    S.pdfOverlay=kImg; S.pdfXformer=tr;
-    // Float pdfLayer to TOP so transformer handles receive clicks
-    pdfLayer.moveToTop();
-    pdfLayer.listening(true);
-    pdfLayer.batchDraw();
+    const iw=Math.round(img.width*fs), ih=Math.round(img.height*fs);
+    const ix=Math.round((CW-iw)/2), iy=Math.round((CH-ih)/2);
+    const box=document.getElementById('pdf-box');
+    box.style.left=ix+'px'; box.style.top=iy+'px';
+    box.style.width=iw+'px'; box.style.height=ih+'px';
+    box.style.transform=''; box.style.transformOrigin='center center';
+    box.classList.remove('locked');
+    cnv.style.opacity='0.70';
+    S._pdfRot=0;
+    // Show handles
+    _pdfHandlesVisible(true);
+    document.getElementById('pdf-overlay').style.display='block';
+    S.pdfOverlay=true; S.pdfXformer=null; S.pdfGeo=null;
     document.getElementById('overlay-panel').style.display='block';
     document.getElementById('overlay-opacity').value=70;
     document.getElementById('overlay-pct').textContent='70%';
     document.getElementById('btn-lock-overlay').style.display='block';
     document.getElementById('btn-unlock-overlay').style.display='none';
-    setStatus('PDF overlay loaded — drag, scale corners, rotate handle to align with aerial');
+    setStatus('PDF loaded — drag to move · orange handles to resize · ↻ to rotate · Lock when aligned');
   } else {
-    // ── Normal mode: PDF fills background, stage fits to it ──
+    // ── Normal mode: PDF fills background canvas ──
     bgLayer.destroyChildren();
     bgLayer.add(new Konva.Image({image:img,x:0,y:0,width:img.width,height:img.height,listening:false}));
     bgLayer.batchDraw();
@@ -2246,61 +2256,147 @@ function setBackground(img){
     setStatus(`PDF loaded (${img.width}×${img.height}px) — use Scale tool to calibrate, then draw your path`);
   }
 }
-function setOverlayOpacity(v){
-  if(S.pdfOverlay) S.pdfOverlay.opacity(v/100);
-  document.getElementById('overlay-pct').textContent=v+'%';
-  pdfLayer.batchDraw();
+
+function _pdfHandlesVisible(show){
+  const d=show?'':'none';
+  document.querySelectorAll('.ph,#pdf-rot-btn,#pdf-rot-line').forEach(el=>el.style.display=d);
+  const box=document.getElementById('pdf-box');
+  box.style.cursor=show?'move':'default';
+  box.style.border=show?'2px solid #f59e0b':'2px solid transparent';
 }
+
+function setOverlayOpacity(v){
+  document.getElementById('pdf-cnv').style.opacity=v/100;
+  document.getElementById('overlay-pct').textContent=v+'%';
+}
+
 function lockOverlay(){
-  // Restore normal layer listening — PDF is locked, drawing layers take over again
-  mainLayer.listening(true); swLayer.listening(true); kmlLayer.listening(true); uiLayer.listening(true);
-  if(S.pdfXformer) S.pdfXformer.hide();
-  if(S.pdfOverlay) S.pdfOverlay.draggable(false);
-  // Save geographic anchor so PDF stays glued to map on pan/zoom
-  if(S.pdfOverlay&&S.leaflet){
-    const kImg=S.pdfOverlay;
-    const ppm=aerialPpm(S.leaflet);
-    S.pdfGeo={
-      anchorLatLng:S.leaflet.containerPointToLatLng([kImg.x(),kImg.y()]),
-      widthFt:kImg.width()*kImg.scaleX()/ppm,   // feet (ppm = px/ft)
-      heightFt:kImg.height()*kImg.scaleY()/ppm, // feet
-      rotation:kImg.rotation()
-    };
-  }
-  // Sink pdfLayer below drawing layers so paths render on top
-  pdfLayer.listening(false);
-  pdfLayer.zIndex(1);
-  pdfLayer.batchDraw();
+  if(!S.pdfOverlay||!S.leaflet) return;
+  const box=document.getElementById('pdf-box');
+  const ppm=aerialPpm(S.leaflet);
+  const l=parseFloat(box.style.left)||0;
+  const t=parseFloat(box.style.top)||0;
+  const w=parseFloat(box.style.width)||100;
+  const h=parseFloat(box.style.height)||100;
+  // Store center lat/lng so rotation (around center) reprojected correctly
+  S.pdfGeo={
+    centerLatLng: S.leaflet.containerPointToLatLng([l+w/2, t+h/2]),
+    widthFt: w/ppm,
+    heightFt: h/ppm,
+    rotation: S._pdfRot||0
+  };
+  _pdfHandlesVisible(false);
+  box.classList.add('locked');
   document.getElementById('btn-lock-overlay').style.display='none';
   document.getElementById('btn-unlock-overlay').style.display='block';
-  // Restore pointer-events for current mode
-  const sc=document.getElementById('stage-container');
-  sc.style.pointerEvents=(S.mode==='pan')?'none':'auto';
-  setStatus('PDF locked — switch to Draw and trace your path');
+  setStatus('PDF locked — Draw your path on top · Unlock to re-adjust');
 }
+
+function unlockOverlay(){
+  S.pdfGeo=null;
+  _pdfHandlesVisible(true);
+  document.getElementById('pdf-box').classList.remove('locked');
+  document.getElementById('btn-lock-overlay').style.display='block';
+  document.getElementById('btn-unlock-overlay').style.display='none';
+  setStatus('PDF unlocked — drag to move · orange handles to resize · ↻ to rotate');
+}
+
 function removeOverlay(){
-  // Restore all layer listening before clearing
-  mainLayer.listening(true); swLayer.listening(true); kmlLayer.listening(true); uiLayer.listening(true);
-  pdfLayer.destroyChildren(); pdfLayer.batchDraw();
-  S.pdfOverlay=null; S.pdfXformer=null; S.pdfGeo=null;
+  document.getElementById('pdf-overlay').style.display='none';
+  S.pdfOverlay=null; S.pdfXformer=null; S.pdfGeo=null; S._pdfRot=0;
   document.getElementById('overlay-panel').style.display='none';
   setStatus('PDF removed');
 }
-function unlockOverlay(){
-  S.pdfGeo=null; // clear geo anchor so free movement works again
-  if(S.pdfXformer) S.pdfXformer.show();
-  if(S.pdfOverlay) S.pdfOverlay.draggable(true);
-  // Float pdfLayer to top so transformer handles are clickable
-  pdfLayer.listening(true);
-  pdfLayer.moveToTop();
-  pdfLayer.batchDraw();
-  // Suppress other layers so pdfLayer wins all hit tests
-  mainLayer.listening(false); swLayer.listening(false); kmlLayer.listening(false); uiLayer.listening(false);
-  // Always allow clicks through to pdfLayer while adjusting
-  document.getElementById('stage-container').style.pointerEvents='auto';
-  document.getElementById('btn-lock-overlay').style.display='block';
-  document.getElementById('btn-unlock-overlay').style.display='none';
-  setStatus('PDF unlocked — drag body to move · drag orange handles to scale · rotate handle at top');
+
+function reprojectLockedPdf(){
+  if(!S.pdfGeo||!S.pdfOverlay||!S.leaflet) return;
+  const ppm=aerialPpm(S.leaflet);
+  const pt=S.leaflet.latLngToContainerPoint(S.pdfGeo.centerLatLng);
+  const w=S.pdfGeo.widthFt*ppm, h=S.pdfGeo.heightFt*ppm;
+  const box=document.getElementById('pdf-box');
+  box.style.left=(pt.x-w/2)+'px';
+  box.style.top=(pt.y-h/2)+'px';
+  box.style.width=w+'px';
+  box.style.height=h+'px';
+  box.style.transform=`rotate(${S.pdfGeo.rotation}deg)`;
+  box.style.transformOrigin='center center';
+}
+
+// ── DOM PDF overlay drag / resize / rotate events ─────────────────
+let _pdf={active:false,type:null,dir:null,sx:0,sy:0,sl:0,st:0,sw:0,sh:0,cx:0,cy:0,sa:0,sr:0};
+function initPdfOverlayEvents(){
+  const cnv=document.getElementById('pdf-cnv');
+  const box=document.getElementById('pdf-box');
+
+  // Move: drag on the PDF canvas body
+  cnv.addEventListener('mousedown',e=>{
+    if(S.pdfGeo||e.button!==0) return;
+    e.preventDefault(); e.stopPropagation();
+    _pdf.active=true; _pdf.type='move';
+    _pdf.sx=e.clientX; _pdf.sy=e.clientY;
+    _pdf.sl=parseFloat(box.style.left)||0;
+    _pdf.st=parseFloat(box.style.top)||0;
+    box.style.cursor='grabbing';
+  });
+
+  // Resize: drag on .ph corner/edge handles
+  document.querySelectorAll('.ph').forEach(h=>{
+    h.addEventListener('mousedown',e=>{
+      if(S.pdfGeo||e.button!==0) return;
+      e.preventDefault(); e.stopPropagation();
+      _pdf.active=true; _pdf.type='resize'; _pdf.dir=h.dataset.d;
+      _pdf.sx=e.clientX; _pdf.sy=e.clientY;
+      _pdf.sl=parseFloat(box.style.left)||0;
+      _pdf.st=parseFloat(box.style.top)||0;
+      _pdf.sw=parseFloat(box.style.width)||200;
+      _pdf.sh=parseFloat(box.style.height)||200;
+    });
+  });
+
+  // Rotate: drag on the rotation handle button
+  document.getElementById('pdf-rot-btn').addEventListener('mousedown',e=>{
+    if(S.pdfGeo||e.button!==0) return;
+    e.preventDefault(); e.stopPropagation();
+    _pdf.active=true; _pdf.type='rotate';
+    const r=box.getBoundingClientRect();
+    _pdf.cx=r.left+r.width/2; _pdf.cy=r.top+r.height/2;
+    _pdf.sa=Math.atan2(e.clientY-_pdf.cy, e.clientX-_pdf.cx);
+    _pdf.sr=S._pdfRot||0;
+    document.getElementById('pdf-rot-btn').style.cursor='grabbing';
+  });
+
+  // Global mousemove — handle all PDF drag types
+  document.addEventListener('mousemove',e=>{
+    if(!_pdf.active) return;
+    const dx=e.clientX-_pdf.sx, dy=e.clientY-_pdf.sy;
+    if(_pdf.type==='move'){
+      box.style.left=(_pdf.sl+dx)+'px';
+      box.style.top=(_pdf.st+dy)+'px';
+    } else if(_pdf.type==='resize'){
+      const d=_pdf.dir;
+      let l=_pdf.sl,t=_pdf.st,w=_pdf.sw,h=_pdf.sh;
+      if(d.includes('e')) w=Math.max(60,_pdf.sw+dx);
+      if(d.includes('s')) h=Math.max(40,_pdf.sh+dy);
+      if(d.includes('w')){w=Math.max(60,_pdf.sw-dx);l=_pdf.sl+_pdf.sw-w;}
+      if(d.includes('n')){h=Math.max(40,_pdf.sh-dy);t=_pdf.st+_pdf.sh-h;}
+      box.style.left=l+'px'; box.style.top=t+'px';
+      box.style.width=w+'px'; box.style.height=h+'px';
+    } else if(_pdf.type==='rotate'){
+      const a=Math.atan2(e.clientY-_pdf.cy, e.clientX-_pdf.cx);
+      const deg=((_pdf.sr+(a-_pdf.sa)*180/Math.PI)%360+360)%360;
+      S._pdfRot=deg;
+      box.style.transform=`rotate(${deg}deg)`;
+    }
+  });
+
+  document.addEventListener('mouseup',()=>{
+    if(_pdf.active){
+      _pdf.active=false;
+      const b=document.getElementById('pdf-box');
+      if(b&&!S.pdfGeo) b.style.cursor='move';
+      document.getElementById('pdf-rot-btn').style.cursor='grab';
+    }
+  });
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -2699,6 +2795,7 @@ function updateVehicleInfo(){
 // ══════════════════════════════════════════════════════════════════
 loadCustomVehicles(); // restore saved custom vehicles before building list
 buildVehicleList();updateVehicleInfo();setMode('draw');updateSpeedPanel();
+initPdfOverlayEvents(); // wire up DOM-based PDF drag/resize/rotate handlers
 setStatus(MODE_HELP.draw);
 
 // ── Keyboard shortcuts ─────────────────────────────────────────

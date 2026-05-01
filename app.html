@@ -78,9 +78,9 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#111827;color:#e5
 #status{position:absolute;bottom:10px;left:10px;background:rgba(31,41,55,.9);border:1px solid #374151;border-radius:7px;padding:5px 10px;font-size:11px;color:#6b7280;pointer-events:none;backdrop-filter:blur(4px);max-width:420px}
 /* PDF DOM overlay handles */
 #pdf-overlay{display:none;position:absolute;inset:0;z-index:5;pointer-events:none}
-#pdf-box{position:absolute;box-sizing:border-box;border:2px solid #f59e0b;cursor:move;transform-origin:center center}
-#pdf-box.locked{border-color:transparent;cursor:default}
-#pdf-cnv{display:block;width:100%;height:100%}
+#pdf-box{position:absolute;box-sizing:border-box;border:2px solid #f59e0b;cursor:move;transform-origin:center center;pointer-events:auto}
+#pdf-box.locked{border-color:transparent;cursor:default;pointer-events:none}
+#pdf-cnv{display:block;width:100%;height:100%;user-select:none}
 .ph{position:absolute;width:18px;height:18px;background:#f59e0b;border:2px solid #78350f;border-radius:3px;pointer-events:auto;z-index:2}
 #pdf-rot-btn{position:absolute;top:-50px;left:calc(50% - 11px);width:22px;height:22px;border-radius:50%;background:#f59e0b;border:2px solid #78350f;cursor:grab;pointer-events:auto;display:flex;align-items:center;justify-content:center;font-size:13px;z-index:2;user-select:none}
 #pdf-rot-line{position:absolute;top:-40px;left:calc(50% - 1px);width:2px;height:40px;background:#f59e0b;pointer-events:none}
@@ -338,7 +338,7 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#111827;color:#e5
       <input type="range" min="0" max="100" value="70" id="overlay-opacity"
         style="width:100%;accent-color:#dc2626;margin-bottom:10px"
         oninput="setOverlayOpacity(this.value)">
-      <div style="font-size:10px;color:#4b5563;margin-bottom:8px">Drag · corner handles to scale · top handle to rotate</div>
+      <div style="font-size:10px;color:#4b5563;margin-bottom:8px">Drag body to move · handles to scale proportionally · ↻ to rotate · then Lock</div>
       <button id="btn-lock-overlay" onclick="lockOverlay()"
         style="width:100%;padding:6px;border-radius:6px;border:1px solid #374151;background:#374151;color:#e5e7eb;cursor:pointer;font-size:11px;font-weight:600">
         🔒 Lock PDF in place
@@ -2408,6 +2408,7 @@ function initPdfOverlayEvents(){
       _pdf.st=parseFloat(box.style.top)||0;
       _pdf.sw=parseFloat(box.style.width)||200;
       _pdf.sh=parseFloat(box.style.height)||200;
+      _pdf.ar=_pdf.sw/_pdf.sh; // lock aspect ratio at drag start
     });
   });
 
@@ -2431,12 +2432,36 @@ function initPdfOverlayEvents(){
       box.style.left=(_pdf.sl+dx)+'px';
       box.style.top=(_pdf.st+dy)+'px';
     } else if(_pdf.type==='resize'){
-      const d=_pdf.dir;
-      let l=_pdf.sl,t=_pdf.st,w=_pdf.sw,h=_pdf.sh;
-      if(d.includes('e')) w=Math.max(60,_pdf.sw+dx);
-      if(d.includes('s')) h=Math.max(40,_pdf.sh+dy);
-      if(d.includes('w')){w=Math.max(60,_pdf.sw-dx);l=_pdf.sl+_pdf.sw-w;}
-      if(d.includes('n')){h=Math.max(40,_pdf.sh-dy);t=_pdf.st+_pdf.sh-h;}
+      // Always proportional — aspect ratio locked at drag start
+      const d=_pdf.dir, ar=_pdf.ar;
+      let l=_pdf.sl, t=_pdf.st, w, h;
+      // Corners: derive width from horizontal drag; height from AR
+      // Edges  : derive primary axis from its drag, secondary from AR, center the other axis
+      if(d==='se'){
+        w=Math.max(60,_pdf.sw+dx); h=w/ar;
+        // anchor: top-left — l,t unchanged
+      } else if(d==='ne'){
+        w=Math.max(60,_pdf.sw+dx); h=w/ar;
+        t=_pdf.st+_pdf.sh-h;        // anchor: bottom-left
+      } else if(d==='sw'){
+        w=Math.max(60,_pdf.sw-dx); h=w/ar;
+        l=_pdf.sl+_pdf.sw-w;        // anchor: top-right
+      } else if(d==='nw'){
+        w=Math.max(60,_pdf.sw-dx); h=w/ar;
+        l=_pdf.sl+_pdf.sw-w; t=_pdf.st+_pdf.sh-h; // anchor: bottom-right
+      } else if(d==='e'){
+        w=Math.max(60,_pdf.sw+dx); h=w/ar;
+        t=_pdf.st+(_pdf.sh-h)/2;   // keep vertical center
+      } else if(d==='w'){
+        w=Math.max(60,_pdf.sw-dx); h=w/ar;
+        l=_pdf.sl+_pdf.sw-w; t=_pdf.st+(_pdf.sh-h)/2;
+      } else if(d==='s'){
+        h=Math.max(40,_pdf.sh+dy); w=h*ar;
+        l=_pdf.sl+(_pdf.sw-w)/2;   // keep horizontal center
+      } else if(d==='n'){
+        h=Math.max(40,_pdf.sh-dy); w=h*ar;
+        l=_pdf.sl+(_pdf.sw-w)/2; t=_pdf.st+_pdf.sh-h;
+      }
       box.style.left=l+'px'; box.style.top=t+'px';
       box.style.width=w+'px'; box.style.height=h+'px';
     } else if(_pdf.type==='rotate'){

@@ -3102,7 +3102,7 @@ document.addEventListener('keydown',e=>{
   switch(e.key){
     case 'Escape':
       if(S.mode==='measure'){S.measurePts=[];S.measureLive=null;drawMeasureUI();}
-      S.selId=null; updatePropPanel(); setMode('draw'); break;
+      S.selId=null; updatePropPanel(); setMode('pan'); break;
     case 'd': case 'D': setMode('draw'); break;
     case 's': case 'S': if(S.vertices.length>=2) setMode('select'); break;
     case 'p': case 'P': setMode('pan'); break;

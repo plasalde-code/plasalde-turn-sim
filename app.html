@@ -34,8 +34,14 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#111827;color:#e5
 .hbtn:hover{background:#374151;color:#e5e7eb}
 .hbtn svg{width:14px;height:14px;flex-shrink:0}
 #app{display:flex;flex:1;overflow:hidden}
-#sidebar{width:256px;background:#1f2937;border-right:1px solid #374151;display:flex;flex-direction:column;overflow:hidden;flex-shrink:0}
+#sidebar{width:210px;background:#1f2937;border-right:1px solid #374151;display:flex;flex-direction:column;overflow:hidden;flex-shrink:0}
 #sidebar-body{flex:1;overflow-y:auto}
+#right-panel{width:220px;background:#1f2937;border-left:1px solid #374151;display:flex;flex-direction:column;overflow:hidden;flex-shrink:0}
+#right-panel-body{flex:1;overflow-y:auto}
+#right-panel::-webkit-scrollbar{width:3px}
+#right-panel-body::-webkit-scrollbar{width:3px}
+#right-panel-body::-webkit-scrollbar-track{background:transparent}
+#right-panel-body::-webkit-scrollbar-thumb{background:#374151;border-radius:2px}
 /* Tool buttons in header */
 #hdr-tools{display:flex;gap:3px;margin:0 10px}
 #hdr-tools .tbtn{flex-direction:row;padding:5px 9px;font-size:12px;gap:5px;font-weight:500;border-radius:6px;line-height:1}
@@ -133,22 +139,8 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#111827;color:#e5
 /* Toggle for display options */
 .opt-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:5px;font-size:11px;color:#9ca3af}
 .chk{width:14px;height:14px;accent-color:#dc2626;cursor:pointer}
-/* ── Right-side Turn Check panel ── */
-#turn-check{position:absolute;top:10px;right:14px;z-index:20;width:200px;
-  background:rgba(15,23,42,.93);border:1px solid #374151;border-radius:10px;
-  backdrop-filter:blur(6px);overflow:hidden;display:none;pointer-events:auto}
-#tc-head{display:flex;align-items:center;justify-content:space-between;
-  padding:7px 10px;border-bottom:1px solid #374151;cursor:pointer;user-select:none}
-#tc-head-title{font-size:11px;font-weight:700;color:#d1d5db;letter-spacing:.3px;display:flex;align-items:center;gap:6px}
-#tc-badge{font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;line-height:1.5}
-#tc-badge.ok{background:rgba(34,197,94,.2);color:#4ade80}
-#tc-badge.warn{background:rgba(245,158,11,.2);color:#fbbf24}
-#tc-badge.fail{background:rgba(239,68,68,.2);color:#f87171}
-#tc-toggle{font-size:10px;color:#4b5563}
-#tc-body{max-height:340px;overflow-y:auto}
-#tc-body::-webkit-scrollbar{width:3px}
-#tc-body::-webkit-scrollbar-thumb{background:#374151;border-radius:2px}
-.tc-row{display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid rgba(55,65,81,.5);cursor:pointer;transition:background .1s}
+/* ── Turn Check rows (in right panel) ── */
+.tc-row{display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid rgba(55,65,81,.4);cursor:pointer;transition:background .1s;border-radius:5px;padding:5px 6px}
 .tc-row:last-child{border-bottom:none}
 .tc-row:hover{background:rgba(55,65,81,.5)}
 .tc-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
@@ -160,7 +152,10 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#111827;color:#e5
 .tc-row.fail-row:hover{background:rgba(127,29,29,.32)}
 .tc-row.warn-row{background:rgba(120,53,15,.14)}
 .tc-row.warn-row:hover{background:rgba(120,53,15,.28)}
-#tc-empty{padding:14px 10px;font-size:11px;color:#4b5563;text-align:center}
+#tc-badge{font-size:10px;font-weight:700;padding:1px 7px;border-radius:10px;line-height:1.6}
+#tc-badge.ok{background:rgba(34,197,94,.2);color:#4ade80}
+#tc-badge.warn{background:rgba(245,158,11,.2);color:#fbbf24}
+#tc-badge.fail{background:rgba(239,68,68,.2);color:#f87171}
 </style>
 </head>
 <body>
@@ -269,127 +264,6 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#111827;color:#e5
       </div>
     </div>
 
-    <div class="s-sec">
-      <h3>Display</h3>
-      <div class="opt-row"><span>Swept area fill</span><input type="checkbox" class="chk" id="opt-fill" checked onchange="render()"></div>
-      <div class="opt-row"><span>Wheel tracks</span><input type="checkbox" class="chk" id="opt-tracks" checked onchange="render()"></div>
-      <div class="opt-row"><span>Vehicle outlines</span><input type="checkbox" class="chk" id="opt-body" checked onchange="render()"></div>
-      <div class="opt-row"><span>Radius circles</span><input type="checkbox" class="chk" id="opt-radii" checked onchange="render()"></div>
-    </div>
-
-    <div class="s-sec" id="prop-panel">
-      <h3>Vertex Properties</h3>
-      <div class="prow">
-        <span class="plabel">Curve Radius</span>
-        <div class="pval-wrap">
-          <input type="number" class="pinput" id="inp-radius" min="0" step="5" placeholder="0"
-            oninput="onRadiusInput(this.value)" onchange="onRadiusInput(this.value)">
-          <span class="punit" id="punit">ft</span>
-        </div>
-      </div>
-      <div class="phint" id="phint">0 = sharp corner</div>
-    </div>
-
-    <div class="s-sec">
-      <h3>Scale</h3>
-      <div id="scale-val">Not calibrated</div>
-      <div class="scale-hint">Load PDF → Scale tool → click 2 pts → enter distance</div>
-    </div>
-
-    <div class="s-sec">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-        <h3 style="margin-bottom:0">Speed Check</h3>
-        <button id="spd-toggle" onclick="toggleSpeedCheck()"
-          style="padding:3px 10px;border-radius:20px;border:1px solid #22c55e;background:#14532d;color:#22c55e;font-size:11px;font-weight:700;cursor:pointer;transition:all .2s;letter-spacing:.5px">
-          ON
-        </button>
-      </div>
-      <div id="spd-controls">
-      <div class="opt-row" style="margin-bottom:4px">
-        <span>Design Speed</span>
-        <span id="spd-val" style="font-size:12px;font-weight:700;color:#fb923c">25 mph</span>
-      </div>
-      <input type="range" min="2" max="80" value="25" step="1" id="spd-slider"
-        style="width:100%;accent-color:#fb923c;margin-bottom:8px"
-        oninput="onSpeedChange(this.value)">
-      <div class="opt-row" style="margin-bottom:4px">
-        <span>Superelevation (e)</span>
-        <select id="emax-sel" onchange="onSpeedChange(document.getElementById('spd-slider').value)"
-          style="background:#111827;border:1px solid #374151;border-radius:5px;color:#e5e7eb;font-size:11px;padding:2px 4px">
-          <option value="0.04">4% — Urban</option>
-          <option value="0.06" selected>6% — Rural</option>
-          <option value="0.08">8% — Highway</option>
-          <option value="0.12">12% — Maximum</option>
-        </select>
-      </div>
-      <div id="spd-info" style="margin-top:6px;background:#111827;border-radius:7px;padding:8px 10px;font-size:11px;line-height:1.8">
-        <div style="display:flex;justify-content:space-between">
-          <span style="color:#6b7280">AASHTO min R</span>
-          <span id="spd-minR" style="color:#fb923c;font-weight:600">—</span>
-        </div>
-        <div style="display:flex;justify-content:space-between">
-          <span style="color:#6b7280">Vehicle steering min R</span>
-          <span id="spd-vehR" style="color:#9ca3af;font-weight:600">—</span>
-        </div>
-        <div style="border-top:1px solid #374151;margin:5px 0"></div>
-        <div style="display:flex;justify-content:space-between;align-items:baseline">
-          <span style="color:#e5e7eb;font-weight:600">Effective min R</span>
-          <span id="spd-effR" style="color:#38bdf8;font-weight:700;font-size:12px">—</span>
-        </div>
-        <div id="spd-governs" style="text-align:right;font-size:9px;color:#4b5563;margin-top:1px">—</div>
-      </div>
-      <div style="margin-top:6px;display:flex;flex-direction:column;gap:3px;font-size:10px">
-        <div style="display:flex;align-items:center;gap:6px"><div style="width:10px;height:10px;border-radius:50%;background:#22c55e;flex-shrink:0"></div><span style="color:#6b7280">Safe at design speed</span></div>
-        <div style="display:flex;align-items:center;gap:6px"><div style="width:10px;height:10px;border-radius:50%;background:#f59e0b;flex-shrink:0"></div><span style="color:#6b7280">Drivable but exceeds AASHTO</span></div>
-        <div style="display:flex;align-items:center;gap:6px"><div style="width:10px;height:10px;border-radius:50%;background:#ef4444;flex-shrink:0"></div><span style="color:#6b7280">Below vehicle steering limit</span></div>
-      </div>
-      </div><!-- end spd-controls -->
-
-      <!-- Reverse-specific parameters — shown only when Reverse is active -->
-      <div id="rev-params" style="display:none;border-top:1px solid #374151;margin-top:8px;padding-top:8px">
-        <div class="opt-row" style="margin-bottom:3px">
-          <span style="color:#fb923c;font-weight:600;font-size:11px">↩ Reverse Op. Speed</span>
-          <span id="rev-spd-val" style="font-size:12px;font-weight:700;color:#fb923c">5 mph</span>
-        </div>
-        <input type="range" min="2" max="15" value="5" step="1" id="rev-spd-slider"
-          style="width:100%;accent-color:#fb923c;margin-bottom:4px"
-          oninput="onReverseSpeedChange(this.value)">
-        <div style="font-size:9px;color:#4b5563;margin-bottom:7px">Max 15 mph · AASHTO speed formula does not apply to reverse</div>
-        <div id="rev-artangle" style="display:none;border-radius:6px;padding:6px 8px;font-size:10px;line-height:1.7;background:#111827"></div>
-      </div>
-    </div>
-
-    <div class="s-sec" id="overlay-panel" style="display:none">
-      <h3>PDF Overlay</h3>
-      <div class="opt-row" style="margin-bottom:8px">
-        <span>Opacity</span>
-        <span id="overlay-pct" style="font-size:11px;color:#9ca3af">70%</span>
-      </div>
-      <input type="range" min="0" max="100" value="70" id="overlay-opacity"
-        style="width:100%;accent-color:#dc2626;margin-bottom:10px"
-        oninput="setOverlayOpacity(this.value)">
-      <div style="font-size:10px;color:#4b5563;margin-bottom:8px">Drag body to move · handles to scale proportionally · ↻ to rotate · then Lock</div>
-      <button id="btn-lock-overlay" onclick="lockOverlay()"
-        style="width:100%;padding:6px;border-radius:6px;border:1px solid #374151;background:#374151;color:#e5e7eb;cursor:pointer;font-size:11px;font-weight:600">
-        🔒 Lock PDF in place
-      </button>
-      <button id="btn-unlock-overlay" onclick="unlockOverlay()"
-        style="width:100%;padding:6px;border-radius:6px;border:1px solid #374151;background:transparent;color:#6b7280;cursor:pointer;font-size:11px;display:none;margin-top:4px">
-        🔓 Unlock to re-adjust
-      </button>
-      <button onclick="removeOverlay()"
-        style="width:100%;padding:6px;border-radius:6px;border:1px solid #7f1d1d;background:transparent;color:#f87171;cursor:pointer;font-size:11px;margin-top:4px">
-        🗑 Remove PDF
-      </button>
-    </div>
-
-    <div class="s-sec">
-      <h3>Units</h3>
-      <div class="utog">
-        <button id="u-ft" class="active" style="width:100%">Feet (US)</button>
-        <button id="u-m" style="display:none" onclick="setUnits('m')">Meters</button>
-      </div>
-    </div>
     </div><!-- end sidebar-body -->
   </aside>
 
@@ -412,20 +286,6 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#111827;color:#e5
         <div id="pdf-rot-btn">↻</div>
       </div>
     </div>
-    <!-- ── Turn Check panel (right side) ── -->
-    <div id="turn-check">
-      <div id="tc-head" onclick="tcToggleBody()">
-        <div id="tc-head-title">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-          Turn Check
-          <span id="tc-badge" class="ok">All OK</span>
-        </div>
-        <span id="tc-toggle">▼</span>
-      </div>
-      <div id="tc-body">
-        <div id="tc-empty">Draw a path with curves<br>to see radius check</div>
-      </div>
-    </div>
     <div id="status">Ready — Load a PDF background, set scale, then draw the vehicle path</div>
     <div id="min-warn">⚠ Curve tighter than min R (<span id="min-r-val"></span>) for <span id="min-v-name"></span></div>
     <div id="scale-bar" style="display:none;position:absolute;bottom:14px;right:14px;background:rgba(31,41,55,.88);border:1px solid #374151;border-radius:7px;padding:6px 10px;pointer-events:none;backdrop-filter:blur(4px)">
@@ -437,6 +297,150 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#111827;color:#e5
         </div>
       </div>
     </div>
+  </div>
+
+  <!-- ── RIGHT PANEL ── -->
+  <div id="right-panel">
+    <div id="right-panel-body">
+
+      <!-- Display -->
+      <div class="s-sec">
+        <h3>Display</h3>
+        <div class="opt-row"><span>Swept area fill</span><input type="checkbox" class="chk" id="opt-fill" checked onchange="render()"></div>
+        <div class="opt-row"><span>Wheel tracks</span><input type="checkbox" class="chk" id="opt-tracks" checked onchange="render()"></div>
+        <div class="opt-row"><span>Vehicle outlines</span><input type="checkbox" class="chk" id="opt-body" checked onchange="render()"></div>
+        <div class="opt-row"><span>Radius circles</span><input type="checkbox" class="chk" id="opt-radii" checked onchange="render()"></div>
+      </div>
+
+      <!-- Vertex Properties -->
+      <div class="s-sec" id="prop-panel">
+        <h3>Vertex Properties</h3>
+        <div class="prow">
+          <span class="plabel">Curve Radius</span>
+          <div class="pval-wrap">
+            <input type="number" class="pinput" id="inp-radius" min="0" step="5" placeholder="0"
+              oninput="onRadiusInput(this.value)" onchange="onRadiusInput(this.value)">
+            <span class="punit" id="punit">ft</span>
+          </div>
+        </div>
+        <div class="phint" id="phint">0 = sharp corner</div>
+      </div>
+
+      <!-- Turn Check -->
+      <div class="s-sec">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <h3 style="margin-bottom:0">Turn Check</h3>
+          <span id="tc-badge" class="tc-badge ok" style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:10px">All OK</span>
+        </div>
+        <div id="tc-body"><div style="font-size:11px;color:#4b5563">Draw curves to see status</div></div>
+      </div>
+
+      <!-- Speed Check -->
+      <div class="s-sec">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <h3 style="margin-bottom:0">Speed Check</h3>
+          <button id="spd-toggle" onclick="toggleSpeedCheck()"
+            style="padding:3px 10px;border-radius:20px;border:1px solid #22c55e;background:#14532d;color:#22c55e;font-size:11px;font-weight:700;cursor:pointer;transition:all .2s;letter-spacing:.5px">
+            ON
+          </button>
+        </div>
+        <div id="spd-controls">
+          <div class="opt-row" style="margin-bottom:4px">
+            <span>Design Speed</span>
+            <span id="spd-val" style="font-size:12px;font-weight:700;color:#fb923c">25 mph</span>
+          </div>
+          <input type="range" min="2" max="80" value="25" step="1" id="spd-slider"
+            style="width:100%;accent-color:#fb923c;margin-bottom:8px"
+            oninput="onSpeedChange(this.value)">
+          <div class="opt-row" style="margin-bottom:4px">
+            <span>Superelevation (e)</span>
+            <select id="emax-sel" onchange="onSpeedChange(document.getElementById('spd-slider').value)"
+              style="background:#111827;border:1px solid #374151;border-radius:5px;color:#e5e7eb;font-size:11px;padding:2px 4px">
+              <option value="0.04">4% — Urban</option>
+              <option value="0.06" selected>6% — Rural</option>
+              <option value="0.08">8% — Highway</option>
+              <option value="0.12">12% — Maximum</option>
+            </select>
+          </div>
+          <div id="spd-info" style="margin-top:6px;background:#111827;border-radius:7px;padding:8px 10px;font-size:11px;line-height:1.8">
+            <div style="display:flex;justify-content:space-between">
+              <span style="color:#6b7280">AASHTO min R</span>
+              <span id="spd-minR" style="color:#fb923c;font-weight:600">—</span>
+            </div>
+            <div style="display:flex;justify-content:space-between">
+              <span style="color:#6b7280">Vehicle min R</span>
+              <span id="spd-vehR" style="color:#9ca3af;font-weight:600">—</span>
+            </div>
+            <div style="border-top:1px solid #374151;margin:5px 0"></div>
+            <div style="display:flex;justify-content:space-between;align-items:baseline">
+              <span style="color:#e5e7eb;font-weight:600">Effective min R</span>
+              <span id="spd-effR" style="color:#38bdf8;font-weight:700;font-size:12px">—</span>
+            </div>
+            <div id="spd-governs" style="text-align:right;font-size:9px;color:#4b5563;margin-top:1px">—</div>
+          </div>
+          <div style="margin-top:6px;display:flex;flex-direction:column;gap:3px;font-size:10px">
+            <div style="display:flex;align-items:center;gap:6px"><div style="width:9px;height:9px;border-radius:50%;background:#22c55e;flex-shrink:0"></div><span style="color:#6b7280">Safe at design speed</span></div>
+            <div style="display:flex;align-items:center;gap:6px"><div style="width:9px;height:9px;border-radius:50%;background:#f59e0b;flex-shrink:0"></div><span style="color:#6b7280">Exceeds AASHTO</span></div>
+            <div style="display:flex;align-items:center;gap:6px"><div style="width:9px;height:9px;border-radius:50%;background:#ef4444;flex-shrink:0"></div><span style="color:#6b7280">Below vehicle min R</span></div>
+          </div>
+        </div><!-- end spd-controls -->
+
+        <!-- Reverse params -->
+        <div id="rev-params" style="display:none;border-top:1px solid #374151;margin-top:8px;padding-top:8px">
+          <div class="opt-row" style="margin-bottom:3px">
+            <span style="color:#fb923c;font-weight:600;font-size:11px">↩ Reverse Op. Speed</span>
+            <span id="rev-spd-val" style="font-size:12px;font-weight:700;color:#fb923c">5 mph</span>
+          </div>
+          <input type="range" min="2" max="15" value="5" step="1" id="rev-spd-slider"
+            style="width:100%;accent-color:#fb923c;margin-bottom:4px"
+            oninput="onReverseSpeedChange(this.value)">
+          <div style="font-size:9px;color:#4b5563;margin-bottom:7px">Max 15 mph · AASHTO formula does not apply to reverse</div>
+          <div id="rev-artangle" style="display:none;border-radius:6px;padding:6px 8px;font-size:10px;line-height:1.7;background:#111827"></div>
+        </div>
+      </div>
+
+      <!-- Scale -->
+      <div class="s-sec">
+        <h3>Scale</h3>
+        <div id="scale-val">Not calibrated</div>
+        <div class="scale-hint">Load PDF → Scale tool → click 2 pts → enter distance</div>
+      </div>
+
+      <!-- PDF Overlay (shown when PDF loaded) -->
+      <div class="s-sec" id="overlay-panel" style="display:none">
+        <h3>PDF Overlay</h3>
+        <div class="opt-row" style="margin-bottom:8px">
+          <span>Opacity</span>
+          <span id="overlay-pct" style="font-size:11px;color:#9ca3af">70%</span>
+        </div>
+        <input type="range" min="0" max="100" value="70" id="overlay-opacity"
+          style="width:100%;accent-color:#dc2626;margin-bottom:10px"
+          oninput="setOverlayOpacity(this.value)">
+        <div style="font-size:10px;color:#4b5563;margin-bottom:8px">Drag to move · handles to scale · ↻ to rotate · then Lock</div>
+        <button id="btn-lock-overlay" onclick="lockOverlay()"
+          style="width:100%;padding:6px;border-radius:6px;border:1px solid #374151;background:#374151;color:#e5e7eb;cursor:pointer;font-size:11px;font-weight:600">
+          🔒 Lock PDF in place
+        </button>
+        <button id="btn-unlock-overlay" onclick="unlockOverlay()"
+          style="width:100%;padding:6px;border-radius:6px;border:1px solid #374151;background:transparent;color:#6b7280;cursor:pointer;font-size:11px;display:none;margin-top:4px">
+          🔓 Unlock to re-adjust
+        </button>
+        <button onclick="removeOverlay()"
+          style="width:100%;padding:6px;border-radius:6px;border:1px solid #7f1d1d;background:transparent;color:#f87171;cursor:pointer;font-size:11px;margin-top:4px">
+          🗑 Remove PDF
+        </button>
+      </div>
+
+      <!-- Units -->
+      <div class="s-sec">
+        <h3>Units</h3>
+        <div class="utog">
+          <button id="u-ft" class="active" style="width:100%">Feet (US)</button>
+          <button id="u-m" style="display:none" onclick="setUnits('m')">Meters</button>
+        </div>
+      </div>
+
+    </div><!-- end right-panel-body -->
   </div>
 </div>
 
@@ -1637,78 +1641,65 @@ function render(){
 // ══════════════════════════════════════════════════════════════════
 // TURN CHECK PANEL (right side)
 // ══════════════════════════════════════════════════════════════════
-let _tcCollapsed=false;
-function tcToggleBody(){
-  _tcCollapsed=!_tcCollapsed;
-  document.getElementById('tc-body').style.display=_tcCollapsed?'none':'block';
-  document.getElementById('tc-toggle').textContent=_tcCollapsed?'▶':'▼';
-}
 function updateTurnCheck(vs,curves){
-  const panel=document.getElementById('turn-check');
   const body=document.getElementById('tc-body');
   const badge=document.getElementById('tc-badge');
-  if(!vs||vs.length<3){panel.style.display='none';return;}
+  if(!body||!badge) return;
+
+  if(!vs||vs.length<3||!curves){
+    body.innerHTML='<div style="font-size:11px;color:#4b5563">Draw curves to see status</div>';
+    badge.className='tc-badge ok'; badge.textContent='—';
+    return;
+  }
 
   // Collect curve nodes
   const nodes=[];
   const aashtoR=S.speedCheckOn?aashtoMinRadius(S.designSpeed,S.eMax):0;
   const vehR=S.vehicle.Rmin;
-  const effR=Math.max(aashtoR,vehR);
 
   curves.forEach((curve,i)=>{
     if(!curve) return;
     const v=vs[i];
     const status=curveStatus(v.radius,S.vehicle);
-    const short=effR>0?effR-v.radius:0;
-    nodes.push({idx:i,vid:v.id,radius:v.radius,status,short,aashtoR,vehR,effR});
+    nodes.push({idx:i,vid:v.id,radius:v.radius,status,aashtoR,vehR});
   });
 
-  if(nodes.length===0){panel.style.display='none';return;}
-  panel.style.display='block';
+  if(nodes.length===0){
+    body.innerHTML='<div style="font-size:11px;color:#4b5563">No curves yet</div>';
+    badge.className='tc-badge ok'; badge.textContent='—';
+    return;
+  }
 
   const failCount=nodes.filter(n=>n.status==='geometry').length;
   const warnCount=nodes.filter(n=>n.status==='speed').length;
 
-  // Badge
-  if(failCount>0){
-    badge.className='tc-badge fail';
-    badge.textContent=`${failCount} blocked`;
-  } else if(warnCount>0){
-    badge.className='tc-badge warn';
-    badge.textContent=`${warnCount} warning`;
-  } else {
-    badge.className='tc-badge ok';
-    badge.textContent='All OK';
-  }
+  if(failCount>0){ badge.className='tc-badge fail'; badge.textContent=`${failCount} blocked`; }
+  else if(warnCount>0){ badge.className='tc-badge warn'; badge.textContent=`${warnCount} warning`; }
+  else { badge.className='tc-badge ok'; badge.textContent='All OK'; }
 
-  // Rows — sort: fail first, then warn, then ok
-  const sorted=[...nodes].sort((a,b)=>{
-    const ord={geometry:0,speed:1,ok:2};
-    return ord[a.status]-ord[b.status];
-  });
+  // Sort: failures first, then warnings, then ok
+  const sorted=[...nodes].sort((a,b)=>({geometry:0,speed:1,ok:2}[a.status]-{geometry:0,speed:1,ok:2}[b.status]));
 
-  // Assign display numbers (position in path, 1-based interior nodes)
+  // Map vertex id → display number (1-based interior nodes)
   const interiorMap={};
   let n=1;
-  for(let i=1;i<vs.length-1;i++){interiorMap[vs[i].id]=n++;}
+  for(let i=1;i<vs.length-1;i++) interiorMap[vs[i].id]=n++;
 
   body.innerHTML='';
   sorted.forEach(nd=>{
     const row=document.createElement('div');
     const isGeom=nd.status==='geometry', isSpeed=nd.status==='speed';
     row.className='tc-row'+(isGeom?' fail-row':isSpeed?' warn-row':'');
-
     const dotCol=isGeom?'#ef4444':isSpeed?'#f59e0b':'#22c55e';
     const nodeNum=interiorMap[nd.vid]??nd.idx;
 
     let msgHtml='';
     if(isGeom){
-      msgHtml=`<div class="tc-msg" style="color:#f87171">Need&nbsp;${nd.vehR.toFixed(0)} ft min · ${(nd.vehR-nd.radius).toFixed(0)} ft short</div>`;
+      msgHtml=`<div class="tc-msg" style="color:#f87171">Need ${nd.vehR.toFixed(0)} ft · ${(nd.vehR-nd.radius).toFixed(0)} ft short</div>`;
     } else if(isSpeed){
-      const short=(nd.aashtoR-nd.radius).toFixed(0);
-      msgHtml=`<div class="tc-msg" style="color:#fbbf24">Need&nbsp;${nd.aashtoR.toFixed(0)} ft @ ${S.designSpeed} mph · ${short} ft short</div>`;
+      msgHtml=`<div class="tc-msg" style="color:#fbbf24">Need ${nd.aashtoR.toFixed(0)} ft @ ${S.designSpeed} mph · ${(nd.aashtoR-nd.radius).toFixed(0)} ft short</div>`;
     } else {
-      msgHtml=`<div class="tc-msg" style="color:#4ade80">OK at ${S.designSpeed} mph</div>`;
+      msgHtml=`<div class="tc-msg" style="color:#4ade80">✓ OK @ ${S.designSpeed} mph</div>`;
     }
 
     row.innerHTML=`
@@ -1719,13 +1710,12 @@ function updateTurnCheck(vs,curves){
         ${msgHtml}
       </div>`;
 
-    // Click → select this vertex and highlight it
+    // Click → select vertex so user can adjust its radius immediately
     row.addEventListener('click',()=>{
       S.selId=nd.vid;
       updatePropPanel();
-      render();
-      // If in draw mode, switch to select so vertex is usable
       if(S.mode==='draw') setMode('select');
+      render();
     });
     body.appendChild(row);
   });

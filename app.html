@@ -250,12 +250,8 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#111827;color:#e5
 <div id="app">
   <aside id="sidebar">
     <div id="sidebar-body">
-    <div class="s-sec">
-      <h3>Design Vehicle</h3>
-      <div id="vlist"></div>
-      <button onclick="openCustomVehicleModal()" style="width:100%;margin-top:6px;padding:6px 8px;border-radius:6px;border:1px dashed #374151;background:transparent;color:#6b7280;cursor:pointer;font-size:11px;font-weight:600;transition:all .15s" onmouseover="this.style.borderColor='#dc2626';this.style.color='#f87171'" onmouseout="this.style.borderColor='#374151';this.style.color='#6b7280'">
-        ➕ Add Custom Vehicle
-      </button>
+    <!-- Selected vehicle info pinned at top -->
+    <div class="s-sec" style="border-bottom:2px solid #374151">
       <div id="vinfo"></div>
       <div class="legend">
         <div class="lrow"><div class="lbox" id="lg-swept" style="background:#ef444430;border:1px solid #ef4444"></div><span>Swept area</span></div>
@@ -265,6 +261,15 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#111827;color:#e5
         <div class="lrow"><div class="lseg" style="background:#60a5fa;border-top:1px dashed #60a5fa;height:1px"></div><span>Centerline</span></div>
         <div class="lrow"><div class="lseg" style="background:#fbbf24;border-top:1px dashed #fbbf24;height:1px"></div><span>Radius circle</span></div>
       </div>
+    </div>
+
+    <!-- Vehicle list -->
+    <div class="s-sec">
+      <h3>Design Vehicle</h3>
+      <div id="vlist"></div>
+      <button onclick="openCustomVehicleModal()" style="width:100%;margin-top:6px;padding:6px 8px;border-radius:6px;border:1px dashed #374151;background:transparent;color:#6b7280;cursor:pointer;font-size:11px;font-weight:600;transition:all .15s" onmouseover="this.style.borderColor='#dc2626';this.style.color='#f87171'" onmouseout="this.style.borderColor='#374151';this.style.color='#6b7280'">
+        ➕ Add Custom Vehicle
+      </button>
     </div>
 
     </div><!-- end sidebar-body -->

@@ -35,8 +35,13 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#111827;color:#e5
 .hbtn svg{width:14px;height:14px;flex-shrink:0}
 #app{display:flex;flex:1;overflow:hidden}
 #sidebar{width:256px;background:#1f2937;border-right:1px solid #374151;display:flex;flex-direction:column;overflow:hidden;flex-shrink:0}
-#sidebar-tools{flex-shrink:0;background:#1f2937;border-bottom:2px solid #374151}
 #sidebar-body{flex:1;overflow-y:auto}
+/* Tool buttons in header */
+#hdr-tools{display:flex;gap:3px;margin:0 10px}
+#hdr-tools .tbtn{flex-direction:row;padding:5px 9px;font-size:12px;gap:5px;font-weight:500;border-radius:6px;line-height:1}
+#hdr-tools .tbtn small{display:none}
+#hdr-tools .tbtn svg{width:14px;height:14px;flex-shrink:0}
+#hdr-tools .tbtn.active{background:#dc2626;color:#fff;border-color:#dc2626}
 #canvas-wrap{flex:1;position:relative;overflow:hidden;background:#0f172a}
 .s-sec{padding:10px 12px;border-bottom:1px solid #374151}
 .s-sec h3{font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#4b5563;margin-bottom:8px;font-weight:600}
@@ -135,6 +140,31 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#111827;color:#e5
 <div id="hdr">
   <span id="hdr-title">▶ P.Lasalde Turn Simulator</span>
   <span style="font-size:10px;color:#374151;margin-left:6px;white-space:nowrap;user-select:none" title="© 2025 Pedro Lasalde. All rights reserved. Unauthorized copying, reproduction, or distribution of this software is strictly prohibited.">© 2025 Pedro Lasalde</span>
+
+  <!-- ── Tool buttons in header ── -->
+  <div id="hdr-tools">
+    <button class="tbtn active" id="tbtn-draw" onclick="setMode('draw')" title="Draw path (D)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+      Draw
+    </button>
+    <button class="tbtn" id="tbtn-select" onclick="setMode('select')" title="Select / move vertices (S)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3l14 9-7 1-4 7L5 3z"/></svg>
+      Select
+    </button>
+    <button class="tbtn" id="tbtn-scale" onclick="startCalibrate()" title="Set drawing scale">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+      Scale
+    </button>
+    <button class="tbtn" id="tbtn-pan" onclick="setMode('pan')" title="Pan canvas (P)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 9l-3 3 3 3M9 5l3-3 3 3M15 19l-3 3-3-3M19 9l3 3-3 3M2 12h20M12 2v20"/></svg>
+      Pan
+    </button>
+    <button class="tbtn" id="tbtn-measure" onclick="setMode('measure')" title="Measure distances (M)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12h20M2 12l4-4M2 12l4 4M22 12l-4-4M22 12l-4 4M12 7v2M12 15v2M7 9v1M17 9v1"/></svg>
+      Measure
+    </button>
+  </div>
+
   <div id="hdr-actions">
     <div id="loc-search-wrap" style="display:none;align-items:center;gap:4px">
       <input id="loc-input" placeholder="Search address or lat,lng…" style="background:#1f2937;border:1px solid #374151;border-radius:6px;color:#f1f5f9;font-size:12px;padding:5px 9px;width:220px;outline:none" onkeydown="if(event.key==='Enter')searchLocation()">
@@ -193,34 +223,6 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#111827;color:#e5
 
 <div id="app">
   <aside id="sidebar">
-    <!-- ── Tools: always visible at top, never scrolls ── -->
-    <div id="sidebar-tools" class="s-sec">
-      <h3>Tools</h3>
-      <div id="tool-grid">
-        <button class="tbtn active" id="tbtn-draw" onclick="setMode('draw')">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-          Draw<small>Click to add pts</small>
-        </button>
-        <button class="tbtn" id="tbtn-select" onclick="setMode('select')">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3l14 9-7 1-4 7L5 3z"/></svg>
-          Select<small>Move / edit R</small>
-        </button>
-        <button class="tbtn" id="tbtn-scale" onclick="startCalibrate()">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
-          Scale<small>Set real units</small>
-        </button>
-        <button class="tbtn" id="tbtn-pan" onclick="setMode('pan')">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 9l-3 3 3 3M9 5l3-3 3 3M15 19l-3 3-3-3M19 9l3 3-3 3M2 12h20M12 2v20"/></svg>
-          Pan<small>Drag / Scroll</small>
-        </button>
-        <button class="tbtn" id="tbtn-measure" onclick="setMode('measure')" style="grid-column:span 2">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12h20M2 12l4-4M2 12l4 4M22 12l-4-4M22 12l-4 4M12 7v2M12 15v2M7 9v1M17 9v1"/></svg>
-          Measure<small>Click pts · right-click to clear</small>
-        </button>
-      </div>
-    </div>
-
-    <!-- ── Everything else scrolls independently ── -->
     <div id="sidebar-body">
     <div class="s-sec">
       <h3>Design Vehicle</h3>
@@ -702,6 +704,18 @@ const VEHICLES = [
   { id:'WB109D',cat:'Semitrailer', name:'WB-109D Turnpike Double',    code:'WB-109D',
     color:'#7f1d1d', W:8.5,  L:109.0, Fo:4.0,  Ro:4.0,  TW:8.0,  Rmin:50.0,
     L1:23.0, L2:78.0, Fwd:0 },
+
+  // 80ft Long Trailer: tractor(WB=22)+80ft trailer body. Fwd=6 under tractor. L2=71, Ro=3.
+  // Stated L≈97ft. Fwd = Fo+L1+L2+Ro−L = 4+22+71+3−97 = 3 (back-calc).
+  { id:'LT80',  cat:'Semitrailer', name:'Long Trailer (80ft body)',   code:'LT-80',
+    color:'#b45309', W:8.5,  L:97.0,  Fo:4.0,  Ro:3.0,  TW:8.0,  Rmin:55.0,
+    L1:22.0, L2:68.0, Fwd:0 },
+
+  // Low Boy: wide drop-deck for heavy equipment hauling. Rmin=50ft.
+  // L2=50, Fo+L1+L2+Ro=4+16+50+3=73 ✓
+  { id:'LOWB',  cat:'Semitrailer', name:'Low Boy (Heavy Haul)',        code:'L-BOY',
+    color:'#0891b2', W:10.0, L:73.0,  Fo:4.0,  Ro:3.0,  TW:9.0,  Rmin:50.0,
+    L1:16.0, L2:50.0, Fwd:0 },
 
   // ── Emergency ─────────────────────────────────────────────────────────────
   { id:'FIRE',  cat:'Emergency',   name:'Fire Engine',                code:'FIRE',

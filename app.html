@@ -2209,33 +2209,15 @@ stage.on('contextmenu',e=>{
 stage.on('wheel',e=>{
   e.evt.preventDefault();
   if(S.aerial&&S.leaflet){
-    // Aerial: Ctrl+scroll = zoom, plain scroll = pan map
-    if(e.evt.ctrlKey){
-      const rect=S.leaflet.getContainer().getBoundingClientRect();
-      const pt=L.point(e.evt.clientX-rect.left,e.evt.clientY-rect.top);
-      S.leaflet.setZoomAround(pt,S.leaflet.getZoom()+(e.evt.deltaY<0?1:-1));
-    } else {
-      const speed=e.evt.shiftKey?1:1;
-      S.leaflet.panBy([e.evt.shiftKey?e.evt.deltaY:0, e.evt.shiftKey?0:e.evt.deltaY],{animate:false});
-    }
+    const rect=S.leaflet.getContainer().getBoundingClientRect();
+    const pt=L.point(e.evt.clientX-rect.left,e.evt.clientY-rect.top);
+    S.leaflet.setZoomAround(pt,S.leaflet.getZoom()+(e.evt.deltaY<0?1:-1));
     return;
   }
-  // Non-aerial: Ctrl+scroll = zoom, plain scroll = pan
-  if(e.evt.ctrlKey){
-    const old=stage.scaleX(),ptr=stage.getPointerPosition();
-    const wb={x:(ptr.x-stage.x())/old,y:(ptr.y-stage.y())/old};
-    const ns=Math.max(0.04,Math.min(60,old*(e.evt.deltaY<0?1.13:0.88)));
-    stage.scale({x:ns,y:ns}); stage.x(ptr.x-wb.x*ns); stage.y(ptr.y-wb.y*ns);
-  } else {
-    // Scroll = pan vertically, Shift+scroll = pan horizontally
-    const delta=e.evt.deltaY||e.evt.deltaX||0;
-    if(e.evt.shiftKey){
-      stage.x(stage.x()-delta);
-    } else {
-      stage.y(stage.y()-delta);
-    }
-    stage.batchDraw();
-  }
+  const old=stage.scaleX(),ptr=stage.getPointerPosition();
+  const wb={x:(ptr.x-stage.x())/old,y:(ptr.y-stage.y())/old};
+  const ns=Math.max(0.04,Math.min(60,old*(e.evt.deltaY<0?1.13:0.88)));
+  stage.scale({x:ns,y:ns}); stage.x(ptr.x-wb.x*ns); stage.y(ptr.y-wb.y*ns);
 });
 // Middle-mouse pan (non-aerial)
 let mm={drag:false,a:{x:0,y:0},b:{x:0,y:0}};
@@ -2269,7 +2251,7 @@ const MODE_HELP={
   draw:'Click to add path vertices · Right-click or switch to Select when done',
   select:'Click a vertex to select · Drag to move · Edit radius in panel below',
   calibrate:'Click two points on the drawing with a known distance',
-  pan:'Drag to pan · Scroll to pan · Shift+Scroll to pan horizontal · Ctrl+Scroll to zoom',
+  pan:'Drag to pan · Scroll wheel to zoom (also works in all other modes)',
   measure:'Click to set points · segments accumulate · right-click to clear',
 };
 function setMode(m){

@@ -2221,7 +2221,7 @@ stage.on('wheel',e=>{
 });
 // Middle-mouse pan (non-aerial)
 let mm={drag:false,a:{x:0,y:0},b:{x:0,y:0}};
-_sc.addEventListener('mousedown',e=>{if(e.button===1){e.preventDefault();mm.drag=true;mm.a={x:e.clientX,y:e.clientY};mm.b={x:stage.x(),y:stage.y()};}});
+_sc.addEventListener('mousedown',e=>{if(e.button===1){e.preventDefault();setMode('pan');mm.drag=true;mm.a={x:e.clientX,y:e.clientY};mm.b={x:stage.x(),y:stage.y()};}});
 document.addEventListener('mousemove',e=>{if(mm.drag){stage.x(mm.b.x+e.clientX-mm.a.x);stage.y(mm.b.y+e.clientY-mm.a.y);}});
 document.addEventListener('mouseup',e=>{if(e.button===1)mm.drag=false;});
 

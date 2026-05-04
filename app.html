@@ -1561,8 +1561,12 @@ function render(){
       if(poly.length>=6){
         swLayer.add(new Konva.Line({
           points:poly,closed:true,
-          fill:drawCol+'28',stroke:drawCol+'55',strokeWidth:1,
-          dash:S.reverse?[6,3]:undefined,listening:false
+          // When path crosses itself the fill looks like a dark mess — show outline only
+          fill:selfX?undefined:drawCol+'28',
+          stroke:drawCol+(selfX?'99':'55'),
+          strokeWidth:selfX?1.5:1,
+          dash:selfX?[8,4]:(S.reverse?[6,3]:undefined),
+          listening:false
         }));
       }
     }
@@ -1776,13 +1780,13 @@ function render(){
   mainLayer.batchDraw();
   swLayer.batchDraw();
   updateVehicleStates();
-  updateTurnCheck(vs, curves);
+  updateTurnCheck(vs, curves, selfX);
 }
 
 // ══════════════════════════════════════════════════════════════════
 // TURN CHECK PANEL (right side)
 // ══════════════════════════════════════════════════════════════════
-function updateTurnCheck(vs,curves){
+function updateTurnCheck(vs,curves,hasCrossing){
   const body=document.getElementById('tc-body');
   const badge=document.getElementById('tc-badge');
   if(!body||!badge) return;
@@ -1814,7 +1818,8 @@ function updateTurnCheck(vs,curves){
   const failCount=nodes.filter(n=>n.status==='geometry').length;
   const warnCount=nodes.filter(n=>n.status==='speed').length;
 
-  if(failCount>0){ badge.className='tc-badge fail'; badge.textContent=`${failCount} blocked`; }
+  if(hasCrossing){ badge.className='tc-badge fail'; badge.textContent='Path crossing'; }
+  else if(failCount>0){ badge.className='tc-badge fail'; badge.textContent=`${failCount} blocked`; }
   else if(warnCount>0){ badge.className='tc-badge warn'; badge.textContent=`${warnCount} warning`; }
   else { badge.className='tc-badge ok'; badge.textContent='All OK'; }
 
@@ -1827,6 +1832,15 @@ function updateTurnCheck(vs,curves){
   for(let i=1;i<vs.length-1;i++) interiorMap[vs[i].id]=n++;
 
   body.innerHTML='';
+
+  // Crossing warning row — pinned at top in red
+  if(hasCrossing){
+    const xrow=document.createElement('div');
+    xrow.style.cssText='background:rgba(127,29,29,.35);border:1px solid #ef4444;border-radius:6px;padding:7px 10px;margin-bottom:6px;font-size:11px;color:#fca5a5;font-weight:600;line-height:1.5';
+    xrow.innerHTML='⛔ Path crosses itself<br><span style="font-weight:400;color:#f87171">Simulation unreliable at crossing point</span>';
+    body.appendChild(xrow);
+  }
+
   sorted.forEach(nd=>{
     const row=document.createElement('div');
     const isGeom=nd.status==='geometry', isSpeed=nd.status==='speed';

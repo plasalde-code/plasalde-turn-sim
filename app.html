@@ -144,6 +144,7 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#111827;color:#e5
 .mbtn-pri{background:#dc2626;color:#fff;display:none}
 .mbtn-pri:hover{background:#b91c1c}
 #min-warn{position:absolute;top:10px;right:10px;background:#7f1d1d;border:1px solid #ef4444;border-radius:7px;padding:6px 10px;font-size:11px;color:#fca5a5;display:none;pointer-events:none}
+#cross-warn{position:absolute;top:10px;left:50%;transform:translateX(-50%);background:#7c2d12;border:1px solid #f97316;border-radius:8px;padding:8px 14px;font-size:12px;font-weight:600;color:#fed7aa;display:none;pointer-events:none;white-space:nowrap;z-index:20}
 #sidebar::-webkit-scrollbar{width:3px}
 #sidebar::-webkit-scrollbar-track{background:transparent}
 #sidebar::-webkit-scrollbar-thumb{background:#374151;border-radius:2px}
@@ -310,6 +311,7 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#111827;color:#e5
     <div id="status">Ready — Load a PDF background, set scale, then draw the vehicle path</div>
     <div style="position:absolute;bottom:6px;right:14px;font-size:9px;color:#374151;pointer-events:none;user-select:none;z-index:10" title="© 2025 Pedro Lasalde. All rights reserved. Unauthorized copying, reproduction, or distribution of this software is strictly prohibited.">© 2025 Pedro Lasalde</div>
     <div id="min-warn">⚠ Curve tighter than min R (<span id="min-r-val"></span>) for <span id="min-v-name"></span></div>
+    <div id="cross-warn">⛔ Path crosses itself — not a valid vehicle movement. Adjust nodes to fix.</div>
     <div id="scale-bar" style="display:none;position:absolute;bottom:14px;right:14px;background:rgba(31,41,55,.88);border:1px solid #374151;border-radius:7px;padding:6px 10px;pointer-events:none;backdrop-filter:blur(4px)">
       <div style="display:flex;align-items:center;gap:6px">
         <div id="sb-left" style="font-size:10px;color:#9ca3af">0</div>
@@ -1138,6 +1140,20 @@ function cleanPolygon(pts){
   return p;
 }
 
+function pathSelfIntersects(pts){
+  // Sample the path for performance — check ~80 segments max
+  const step=Math.max(1,Math.floor(pts.length/80));
+  const s=[];
+  for(let i=0;i<pts.length;i+=step) s.push(pts[i]);
+  if(s[s.length-1]!==pts[pts.length-1]) s.push(pts[pts.length-1]);
+  for(let i=0;i<s.length-1;i++){
+    for(let j=i+2;j<s.length-1;j++){
+      if(segIntersect(s[i],s[i+1],s[j],s[j+1])) return true;
+    }
+  }
+  return false;
+}
+
 // ══════════════════════════════════════════════════════════════════
 // 10. VEHICLE BODY OUTLINE (for display at key positions)
 // ══════════════════════════════════════════════════════════════════
@@ -1416,6 +1432,11 @@ function render(){
 
   const pathPts=computePathPoints(vs,curves);
   if(pathPts.length<2){mainLayer.batchDraw();swLayer.batchDraw();return;}
+
+  // Detect self-intersecting path — physically impossible movement
+  const crossWarn=document.getElementById('cross-warn');
+  const selfX=pathSelfIntersects(pathPts);
+  crossWarn.style.display=selfX?'block':'none';
 
   const col=S.vehicle.color;
   // Reverse: orange palette so forward and reverse are visually distinct
@@ -2295,7 +2316,7 @@ function addVertex(x,y){
   render();
 }
 function undoLast(){if(!S.vertices.length)return;S.vertices.pop();S.selId=S.vertices.length?S.vertices[S.vertices.length-1].id:null;updatePropPanel();render();}
-function clearPath(){S.vertices=[];S.selId=null;S.estPpm=null;updatePropPanel();document.getElementById('min-warn').style.display='none';render();}
+function clearPath(){S.vertices=[];S.selId=null;S.estPpm=null;updatePropPanel();document.getElementById('min-warn').style.display='none';document.getElementById('cross-warn').style.display='none';render();}
 
 // ══════════════════════════════════════════════════════════════════
 // 14. MODE & UI

@@ -1141,8 +1141,8 @@ function cleanPolygon(pts){
 }
 
 function pathSelfIntersects(pts){
-  // Sample the path for performance — check ~80 segments max
-  const step=Math.max(1,Math.floor(pts.length/80));
+  // For short paths check every point; sample only for very long ones
+  const step=pts.length>600?Math.floor(pts.length/300):1;
   const s=[];
   for(let i=0;i<pts.length;i+=step) s.push(pts[i]);
   if(s[s.length-1]!==pts[pts.length-1]) s.push(pts[pts.length-1]);
@@ -1152,6 +1152,30 @@ function pathSelfIntersects(pts){
     }
   }
   return false;
+}
+
+// Shared helper: check + snap-back after a drag
+function checkDragCrossing(v,savedX,savedY){
+  if(S.vertices.length<3) return;
+  const ppm=S.ppm||S.estPpm||8;
+  const tc=S.vertices.map((vt,i)=>{
+    if(i===0||i===S.vertices.length-1||vt.radius<=0) return null;
+    return computeCurve(S.vertices[i-1],vt,S.vertices[i+1],vt.radius*ppm);
+  });
+  if(pathSelfIntersects(computePathPoints(S.vertices,tc))){
+    v.x=savedX; v.y=savedY;
+    if(S.aerial&&S.leaflet){
+      const ll=S.leaflet.containerPointToLatLng([v.x,v.y]);
+      v.lat=ll.lat; v.lng=ll.lng;
+    }
+    const cw=document.getElementById('cross-warn');
+    cw.textContent='⛔ Node snapped back — moving here would cross the path.';
+    cw.style.display='block';
+    setTimeout(()=>{
+      cw.textContent='⛔ Path crosses itself — not a valid vehicle movement. Adjust nodes to fix.';
+      cw.style.display='none';
+    },2500);
+  }
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -1500,10 +1524,12 @@ function render(){
       if(isBad){
         // Click bad node → ensure it stays selected & panel stays open
         c.on('click tap',()=>{S.selId=v.id;updatePropPanel();render();});
+        let _bsx=v.x,_bsy=v.y;
+        c.on('dragstart',()=>{_bsx=v.x;_bsy=v.y;});
         c.on('dragmove',e=>{v.x=e.target.x();v.y=e.target.y();
           if(S.aerial&&S.leaflet){const ll=S.leaflet.containerPointToLatLng([v.x,v.y]);v.lat=ll.lat;v.lng=ll.lng;}
         });
-        c.on('dragend',()=>{render();});
+        c.on('dragend',()=>{checkDragCrossing(v,_bsx,_bsy);render();});
         // Pulsing ring
         mainLayer.add(new Konva.Circle({x:v.x,y:v.y,radius:18,stroke:'#ef4444',strokeWidth:1.5,dash:[4,3],fill:'transparent',listening:false}));
       }
@@ -1744,6 +1770,8 @@ function render(){
       draggable:S.mode==='select',id:v.id,hitStrokeWidth:12,
     });
     c.on('click tap',()=>{if(S.mode==='select'){S.selId=v.id;updatePropPanel();render();}});
+    let _sx=v.x,_sy=v.y;
+    c.on('dragstart',()=>{_sx=v.x;_sy=v.y;});
     c.on('dragmove',e=>{
       // Update vertex data as the circle moves — do NOT call render() here!
       // render() calls mainLayer.destroyChildren() which destroys this very circle
@@ -1755,6 +1783,7 @@ function render(){
       }
     });
     c.on('dragend',()=>{
+      checkDragCrossing(v,_sx,_sy);
       // Full re-render once the drag is complete (swept path + vertex circles rebuilt)
       render();
     });

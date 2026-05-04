@@ -2333,7 +2333,10 @@ document.addEventListener('mouseup',e=>{if(e.button===1)mm.drag=false;});
 // ══════════════════════════════════════════════════════════════════
 function addVertex(x,y){
   const id=`v${S._uid++}`;
-  const v={id,x,y,radius:0};
+  // Default radius = vehicle's minimum turning radius (same as AutoTURN).
+  // First and last nodes don't use radius, but interior nodes get the vehicle min R.
+  const defaultR = S.vehicle.Rmin || 0;
+  const v={id,x,y,radius:defaultR};
   // In aerial mode, also store lat/lng so vertex survives map pan/zoom
   if(S.aerial&&S.leaflet){
     const ll=S.leaflet.containerPointToLatLng([x,y]);

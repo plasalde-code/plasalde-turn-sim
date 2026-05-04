@@ -1157,29 +1157,8 @@ function pathSelfIntersects(pts){
   return false;
 }
 
-// Shared helper: check + snap-back after a drag
-function checkDragCrossing(v,savedX,savedY){
-  if(S.vertices.length<3) return;
-  const ppm=S.ppm||S.estPpm||8;
-  const tc=S.vertices.map((vt,i)=>{
-    if(i===0||i===S.vertices.length-1||vt.radius<=0) return null;
-    return computeCurve(S.vertices[i-1],vt,S.vertices[i+1],vt.radius*ppm);
-  });
-  if(pathSelfIntersects(computePathPoints(S.vertices,tc))){
-    v.x=savedX; v.y=savedY;
-    if(S.aerial&&S.leaflet){
-      const ll=S.leaflet.containerPointToLatLng([v.x,v.y]);
-      v.lat=ll.lat; v.lng=ll.lng;
-    }
-    const cw=document.getElementById('cross-warn');
-    cw.textContent='⛔ Node snapped back — moving here would cross the path.';
-    cw.style.display='block';
-    setTimeout(()=>{
-      cw.textContent='⛔ Path crosses itself — not a valid vehicle movement. Adjust nodes to fix.';
-      cw.style.display='none';
-    },2500);
-  }
-}
+// Drag crossing check — warning only, no snap-back (intersections must be allowed)
+function checkDragCrossing(v,savedX,savedY){}
 
 // ══════════════════════════════════════════════════════════════════
 // 10. VEHICLE BODY OUTLINE (for display at key positions)
@@ -2347,29 +2326,8 @@ function addVertex(x,y){
   }
   S.vertices.push(v);
 
-  // ── Self-intersection guard ────────────────────────────────────
-  // Check if adding this node would make the path cross itself.
-  // If so, remove it immediately and warn the user.
-  if(S.vertices.length>=3){
-    const ppm=S.ppm||S.estPpm||8;
-    const testCurves=S.vertices.map((vt,i)=>{
-      if(i===0||i===S.vertices.length-1||vt.radius<=0) return null;
-      return computeCurve(S.vertices[i-1],vt,S.vertices[i+1],vt.radius*ppm);
-    });
-    const testPath=computePathPoints(S.vertices,testCurves);
-    if(pathSelfIntersects(testPath)){
-      S.vertices.pop(); // reject the node
-      const cw=document.getElementById('cross-warn');
-      cw.textContent='⛔ Cannot place node here — path would cross itself. Try a different position.';
-      cw.style.display='block';
-      setTimeout(()=>{
-        cw.textContent='⛔ Path crosses itself — not a valid vehicle movement. Adjust nodes to fix.';
-        cw.style.display='none';
-      },2500);
-      return; // don't render or update anything
-    }
-  }
-  // ─────────────────────────────────────────────────────────────
+  // (Self-intersection is shown as a warning in render — not blocked here,
+  //  since legitimate intersection crossings must be allowed.)
 
   S.selId=id; updatePropPanel();
   setStatus(`${S.vertices.length} vertices — right-click or switch to Select to finish`);

@@ -13,12 +13,25 @@
 <script src="config.js"></script>
 <script>
 // ── AUTH GUARD ──────────────────────────────────────────────────────
-// Redirect to login if not signed in. Terms check runs later (in main
-// script) once the DOM is fully ready.
-const TERMS_VERSION = 'terms_v2'; // bump this string whenever terms change
+const TERMS_VERSION = 'terms_v2';
 (async()=>{
   const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
-  const {data:{session}} = await sb.auth.getSession();
+
+  // getSession() automatically processes OAuth hash tokens (#access_token=...)
+  // that Supabase puts in the URL after a successful OAuth redirect
+  let {data:{session}} = await sb.auth.getSession();
+
+  // If still no session, wait briefly for onAuthStateChange to fire
+  // (handles edge case where hash processing is slightly delayed)
+  if(!session){
+    session = await new Promise(resolve=>{
+      const t = setTimeout(()=>resolve(null), 2000);
+      sb.auth.onAuthStateChange((event, s)=>{
+        if(s){ clearTimeout(t); resolve(s); }
+      });
+    });
+  }
+
   if(!session){ window.location.href='login.html'; return; }
   window._sb = sb;
   window._user = session.user;

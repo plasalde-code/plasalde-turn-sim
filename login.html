@@ -105,7 +105,10 @@ function showMsg(text, type){
 async function doGoogleLogin(){
   const {error} = await sbClient.auth.signInWithOAuth({
     provider: 'google',
-    options: { redirectTo: window.location.origin + '/app.html' }
+    options: {
+      redirectTo: 'https://plasalde-turn-sim.vercel.app/app.html',
+      queryParams: { prompt: 'select_account' }
+    }
   });
   if(error) showMsg(error.message, 'error');
 }

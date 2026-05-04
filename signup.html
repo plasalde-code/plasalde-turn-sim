@@ -31,7 +31,6 @@ input:focus{border-color:#ef4444}
 .btn:disabled{background:#475569;cursor:not-allowed}
 .msg{font-size:13px;margin-top:14px;padding:10px 14px;border-radius:8px;display:none}
 .msg.error{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);color:#fca5a5}
-.msg.success{background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.3);color:#86efac}
 .footer-links{margin-top:24px;text-align:center;font-size:13px;color:#64748b}
 .footer-links a{color:#ef4444;font-weight:600}
 .divider{display:flex;align-items:center;gap:10px;margin:20px 0;color:#475569;font-size:12px}
@@ -41,11 +40,30 @@ input:focus{border-color:#ef4444}
 .btn-google:hover{background:#f9fafb}
 .beta-badge{display:inline-block;background:rgba(239,68,68,.15);color:#ef4444;
   border:1px solid rgba(239,68,68,.3);border-radius:12px;padding:2px 10px;font-size:11px;font-weight:600;margin-bottom:16px}
+
+/* Email confirmation screen */
+#confirm-screen{display:none;text-align:center}
+.confirm-icon{font-size:56px;margin-bottom:20px}
+.confirm-title{font-size:22px;font-weight:800;margin-bottom:10px;color:#f1f5f9}
+.confirm-sub{font-size:14px;color:#94a3b8;line-height:1.7;margin-bottom:24px}
+.confirm-email{display:inline-block;background:#0f172a;border:1px solid #334155;border-radius:8px;
+  padding:8px 18px;font-size:14px;font-weight:700;color:#38bdf8;margin-bottom:24px;word-break:break-all}
+.confirm-steps{text-align:left;background:#0f172a;border-radius:10px;padding:18px 20px;margin-bottom:24px}
+.confirm-steps li{font-size:13px;color:#94a3b8;margin-bottom:10px;display:flex;align-items:flex-start;gap:10px;line-height:1.5}
+.confirm-steps li:last-child{margin-bottom:0}
+.step-num{width:22px;height:22px;border-radius:50%;background:#ef4444;color:#fff;font-size:11px;font-weight:700;
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px}
+.resend-btn{background:transparent;border:1px solid #334155;color:#94a3b8;border-radius:8px;
+  padding:9px 20px;font-size:13px;cursor:pointer;transition:all .15s;width:100%;margin-bottom:10px}
+.resend-btn:hover{border-color:#ef4444;color:#f87171}
+.resend-msg{font-size:12px;color:#4ade80;text-align:center;display:none;margin-bottom:8px}
 </style>
 </head>
 <body>
 <a href="index.html" class="logo">▶ P.Lasalde Turn Simulator</a>
-<div class="card">
+
+<!-- Signup form -->
+<div class="card" id="signup-card">
   <div class="beta-badge">Beta — Full Free Access</div>
   <h1>Create your account</h1>
   <p class="sub">Free during beta · No credit card required</p>
@@ -102,48 +120,90 @@ input:focus{border-color:#ef4444}
   </div>
 </div>
 
+<!-- Email confirmation screen — replaces the form -->
+<div class="card" id="confirm-screen">
+  <div class="confirm-icon">📬</div>
+  <div class="confirm-title">Check your inbox!</div>
+  <p class="confirm-sub">We sent a confirmation link to:</p>
+  <div class="confirm-email" id="confirm-email-display"></div>
+  <ul class="confirm-steps" style="list-style:none;padding:0">
+    <li><span class="step-num">1</span>Open your email inbox (check spam if you don't see it)</li>
+    <li><span class="step-num">2</span>Click the <b style="color:#f1f5f9">Confirm your email</b> link in the message</li>
+    <li><span class="step-num">3</span>You'll be taken directly into the app — no password needed again</li>
+  </ul>
+  <div class="resend-msg" id="resend-msg">✓ New confirmation email sent!</div>
+  <button class="resend-btn" onclick="resendEmail()">Didn't get it? Resend email</button>
+  <a href="login.html" class="btn" style="display:block;text-align:center;text-decoration:none;margin-top:4px">Go to Log In →</a>
+</div>
+
 <script>
 const sbClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+let _signupEmail = '';
 
+// If already logged in, go straight to app
 sbClient.auth.getSession().then(({data:{session}})=>{
   if(session) window.location.href='app.html';
 });
 
-async function doSignup(){
-  const name     = document.getElementById('name').value.trim();
-  const email    = document.getElementById('email').value.trim();
-  const pw       = document.getElementById('password').value;
-  const pw2      = document.getElementById('password2').value;
-  const agreed   = document.getElementById('agree').checked;
-  const btn      = document.getElementById('signup-btn');
+// If returning from email confirmation link, session will be set — redirect to app
+sbClient.auth.onAuthStateChange((event, session)=>{
+  if((event==='SIGNED_IN'||event==='USER_UPDATED') && session){
+    window.location.href='app.html';
+  }
+});
 
-  if(!name)          { showMsg('Please enter your name.','error'); return; }
-  if(!email)         { showMsg('Please enter your email.','error'); return; }
-  if(pw.length < 8)  { showMsg('Password must be at least 8 characters.','error'); return; }
-  if(pw !== pw2)     { showMsg('Passwords do not match.','error'); return; }
-  if(!agreed)        { showMsg('You must read and accept the disclaimer to continue.','error'); return; }
+async function doSignup(){
+  const name   = document.getElementById('name').value.trim();
+  const email  = document.getElementById('email').value.trim();
+  const pw     = document.getElementById('password').value;
+  const pw2    = document.getElementById('password2').value;
+  const agreed = document.getElementById('agree').checked;
+  const btn    = document.getElementById('signup-btn');
+
+  if(!name)         { showMsg('Please enter your name.','error'); return; }
+  if(!email)        { showMsg('Please enter your email.','error'); return; }
+  if(pw.length < 8) { showMsg('Password must be at least 8 characters.','error'); return; }
+  if(pw !== pw2)    { showMsg('Passwords do not match.','error'); return; }
+  if(!agreed)       { showMsg('You must read and accept the disclaimer to continue.','error'); return; }
 
   btn.disabled = true; btn.textContent = 'Creating account…';
 
   const {data, error} = await sbClient.auth.signUp({
     email, password: pw,
-    // Store terms acceptance in metadata so the in-app terms gate never shows
-    // for brand-new users (they accepted at signup).
-    options:{ data:{ full_name: name, terms_v2: true } }
+    options:{
+      data:{ full_name: name, terms_v2: true },
+      emailRedirectTo: 'https://plasalde-turn-sim.vercel.app/app.html'
+    }
   });
 
   if(error){
     showMsg(error.message, 'error');
     btn.disabled = false; btn.textContent = 'Create Free Account';
   } else if(data.session){
-    // Email confirmation disabled — session created immediately
-    showMsg('Account created! Redirecting…', 'success');
-    setTimeout(()=> window.location.href = 'app.html', 800);
+    // Email confirmation disabled — go straight in
+    window.location.href = 'app.html';
   } else {
-    // Email confirmation enabled — user must confirm first
-    showMsg('Account created! Check your email to confirm, then log in.', 'success');
-    btn.textContent = 'Check your email ✓';
+    // Show confirmation screen
+    _signupEmail = email;
+    showConfirmScreen(email);
   }
+}
+
+function showConfirmScreen(email){
+  document.getElementById('signup-card').style.display = 'none';
+  document.getElementById('confirm-email-display').textContent = email;
+  document.getElementById('confirm-screen').style.display = 'block';
+}
+
+async function resendEmail(){
+  if(!_signupEmail) return;
+  const btn = document.querySelector('.resend-btn');
+  btn.disabled = true; btn.textContent = 'Sending…';
+  await sbClient.auth.resend({ type:'signup', email:_signupEmail,
+    options:{ emailRedirectTo:'https://plasalde-turn-sim.vercel.app/app.html' }
+  });
+  document.getElementById('resend-msg').style.display = 'block';
+  setTimeout(()=>{ btn.disabled=false; btn.textContent="Didn't get it? Resend email"; }, 30000);
 }
 
 async function doGoogleSignup(){
@@ -151,8 +211,8 @@ async function doGoogleSignup(){
   if(!agreed){ showMsg('You must read and accept the disclaimer before signing up with Google.','error'); return; }
   const {error} = await sbClient.auth.signInWithOAuth({
     provider: 'google',
-    options: {
-      redirectTo: window.location.origin + '/app.html',
+    options:{
+      redirectTo: 'https://plasalde-turn-sim.vercel.app/app.html',
       queryParams: { prompt: 'select_account' }
     }
   });

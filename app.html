@@ -1703,20 +1703,24 @@ function render(){
       // ── Dimension label ───────────────────────────────────────
       const mx2=(cx+ax)/2, my2=(cy+ay)/2;
       const offX=ny*14, offY=-nx*14;
-      // Line 1: radius value
       const minR=aashtoMinRadius(S.designSpeed,S.eMax);
-      const line1=`R = ${dispLen(v.radius)} ft`;
-      // Line 2: speed status (show required radius when not ok)
-      const line2=status==='ok'
-        ?`✔ OK @ ${S.designSpeed} mph`
-        :status==='speed'
-          ?`⚠ Need ${minR.toFixed(0)} ft @ ${S.designSpeed} mph`
-          :`✖ Below veh. min ${dispLen(S.vehicle.Rmin)} ft`;
-      const lbl=new Konva.Label({x:mx2+offX,y:my2+offY-10,listening:false,opacity:.97});
-      lbl.add(new Konva.Tag({fill:'rgba(10,15,25,.93)',cornerRadius:3,stroke:col,strokeWidth:.7}));
+      // OK nodes: compact single line. Warnings/fails: two lines with detail.
+      let lblText, lblOpacity;
+      if(status==='ok'){
+        lblText=`R = ${dispLen(v.radius)} ft`;
+        lblOpacity=0.65;
+      } else if(status==='speed'){
+        lblText=`R = ${dispLen(v.radius)} ft\n⚠ Need ${minR.toFixed(0)} ft @ ${S.designSpeed} mph`;
+        lblOpacity=0.95;
+      } else {
+        lblText=`R = ${dispLen(v.radius)} ft\n✖ Below min ${dispLen(S.vehicle.Rmin)} ft`;
+        lblOpacity=0.95;
+      }
+      const lbl=new Konva.Label({x:mx2+offX,y:my2+offY-10,listening:false,opacity:lblOpacity});
+      lbl.add(new Konva.Tag({fill:'rgba(10,15,25,.85)',cornerRadius:3,stroke:col,strokeWidth:.5}));
       lbl.add(new Konva.Text({
-        text:line1+'\n'+line2,
-        fontSize:10,fontStyle:'bold',fill:col,padding:3,lineHeight:1.5
+        text:lblText,
+        fontSize:9,fill:col,padding:2,lineHeight:1.4
       }));
       mainLayer.add(lbl);
     });

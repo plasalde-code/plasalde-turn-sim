@@ -1142,15 +1142,18 @@ function cleanPolygon(pts){
 
 function pathSelfIntersects(pts){
   if(pts.length<2) return false;
-  // Check every segment pair for actual crossings.
-  // Only flags paths where the centerline physically crosses itself.
-  // Winding roads with many turns are allowed as long as they don't cross.
   const step=pts.length>800?Math.floor(pts.length/400):1;
   const s=[];
   for(let i=0;i<pts.length;i+=step) s.push(pts[i]);
   if(s[s.length-1]!==pts[pts.length-1]) s.push(pts[pts.length-1]);
-  for(let i=0;i<s.length-1;i++){
-    for(let j=i+2;j<s.length-1;j++){
+  const n=s.length;
+  // Skip the first/last 10% of segments when checking against each other.
+  // This avoids false positives on U-turns and divided-road movements where
+  // entry and exit arcs legitimately sweep close together near endpoints.
+  const edge=Math.max(2,Math.floor(n*0.10));
+  for(let i=0;i<n-1;i++){
+    for(let j=i+2;j<n-1;j++){
+      if(i<edge&&j>=n-1-edge) continue; // skip start-zone vs end-zone
       if(segIntersect(s[i],s[i+1],s[j],s[j+1])) return true;
     }
   }

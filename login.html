@@ -68,6 +68,13 @@ sbClient.auth.getSession().then(({data:{session}})=>{
   if(session) window.location.href='app.html';
 });
 
+// Catch OAuth/magic-link redirects that land on this page
+sbClient.auth.onAuthStateChange((event, session)=>{
+  if((event==='SIGNED_IN'||event==='USER_UPDATED') && session){
+    window.location.href='app.html';
+  }
+});
+
 async function doLogin(){
   const email = document.getElementById('email').value.trim();
   const password = document.getElementById('password').value;

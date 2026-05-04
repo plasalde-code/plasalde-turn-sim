@@ -2311,6 +2311,31 @@ function addVertex(x,y){
     v.lat=ll.lat; v.lng=ll.lng;
   }
   S.vertices.push(v);
+
+  // ── Self-intersection guard ────────────────────────────────────
+  // Check if adding this node would make the path cross itself.
+  // If so, remove it immediately and warn the user.
+  if(S.vertices.length>=3){
+    const ppm=S.ppm||S.estPpm||8;
+    const testCurves=S.vertices.map((vt,i)=>{
+      if(i===0||i===S.vertices.length-1||vt.radius<=0) return null;
+      return computeCurve(S.vertices[i-1],vt,S.vertices[i+1],vt.radius*ppm);
+    });
+    const testPath=computePathPoints(S.vertices,testCurves);
+    if(pathSelfIntersects(testPath)){
+      S.vertices.pop(); // reject the node
+      const cw=document.getElementById('cross-warn');
+      cw.textContent='⛔ Cannot place node here — path would cross itself. Try a different position.';
+      cw.style.display='block';
+      setTimeout(()=>{
+        cw.textContent='⛔ Path crosses itself — not a valid vehicle movement. Adjust nodes to fix.';
+        cw.style.display='none';
+      },2500);
+      return; // don't render or update anything
+    }
+  }
+  // ─────────────────────────────────────────────────────────────
+
   S.selId=id; updatePropPanel();
   setStatus(`${S.vertices.length} vertices — right-click or switch to Select to finish`);
   render();

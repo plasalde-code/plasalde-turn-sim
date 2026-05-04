@@ -1099,6 +1099,46 @@ function buildSweptEnvelope(frames,veh,ppm,pathPts){
 }
 
 // ══════════════════════════════════════════════════════════════════
+// 9b. POLYGON SELF-INTERSECTION CLEANUP
+// Removes "ear" artifacts caused by tight curves where the inner
+// boundary folds back and crosses the polygon's own edges.
+// ══════════════════════════════════════════════════════════════════
+function segIntersect(a,b,c,d){
+  const dx1=b.x-a.x,dy1=b.y-a.y;
+  const dx2=d.x-c.x,dy2=d.y-c.y;
+  const den=dx1*dy2-dy1*dx2;
+  if(Math.abs(den)<1e-10) return null;
+  const t=((c.x-a.x)*dy2-(c.y-a.y)*dx2)/den;
+  const u=((c.x-a.x)*dy1-(c.y-a.y)*dx1)/den;
+  if(t>1e-10&&t<1-1e-10&&u>1e-10&&u<1-1e-10)
+    return{x:a.x+t*dx1,y:a.y+t*dy1};
+  return null;
+}
+
+function cleanPolygon(pts){
+  // Iteratively find the first self-intersection and clip the ear,
+  // repeat until the polygon is clean or guard limit is reached.
+  let p=pts.slice();
+  let guard=0,found=true;
+  while(found&&guard++<60){
+    found=false;
+    outer:for(let i=0;i<p.length-1;i++){
+      for(let j=i+2;j<p.length-1;j++){
+        if(i===0&&j===p.length-2) continue; // skip adjacent wrap-around pair
+        const ix=segIntersect(p[i],p[i+1],p[j],p[j+1]);
+        if(ix){
+          // Replace the section between i+1..j with the crossing point
+          p=[...p.slice(0,i+1),ix,...p.slice(j+1)];
+          found=true;
+          break outer;
+        }
+      }
+    }
+  }
+  return p;
+}
+
+// ══════════════════════════════════════════════════════════════════
 // 10. VEHICLE BODY OUTLINE (for display at key positions)
 // ══════════════════════════════════════════════════════════════════
 function renderBodyOutline(frame,veh,ppm,layer){
@@ -1488,7 +1528,7 @@ function render(){
     // 1. Swept envelope fill
     if(showFill){
       const env=buildSweptEnvelope(frames,S.vehicle,effectivePpm,simPath);
-      const poly=flat([...env.leftB,...[...env.rightB].reverse()]);
+      const poly=flat(cleanPolygon([...env.leftB,...[...env.rightB].reverse()]));
       if(poly.length>=6){
         swLayer.add(new Konva.Line({
           points:poly,closed:true,
@@ -2846,7 +2886,7 @@ function exportDXF(){
     dxf+=polyline(tracks.tL,'TRAILER-AXLE',false);
     dxf+=polyline(tracks.tR,'TRAILER-AXLE',false);
   }
-  const swPoly=[...env.leftB,...[...env.rightB].reverse()];
+  const swPoly=cleanPolygon([...env.leftB,...[...env.rightB].reverse()]);
   dxf+=polyline(swPoly,'SWEPT-ENVELOPE',true);
   dxf+='0\nENDSEC\n0\nEOF\n';
 
@@ -2920,7 +2960,7 @@ function exportKML(){
     kml+=lineplacemark('Swept Outline - Right',rightSmooth,kFull,2.5);
 
     // Filled swept envelope polygon
-    const ring=[...leftSmooth,...[...rightSmooth].reverse(),leftSmooth[0]];
+    const ring=cleanPolygon([...leftSmooth,...[...rightSmooth].reverse(),leftSmooth[0]]);
     const coords=ring.map(toLngLat).join('\n');
     kml+=`  <Placemark><name>Swept Envelope — ${S.vehicle.name}</name>
     <Style>

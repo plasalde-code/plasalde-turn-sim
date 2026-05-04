@@ -1143,7 +1143,7 @@ function cleanPolygon(pts){
 function pathSelfIntersects(pts){
   if(pts.length<2) return false;
 
-  // 1. Edge-crossing check (catches explicit crossings)
+  // 1. Edge-crossing check — catches explicit path crossings
   const step=pts.length>600?Math.floor(pts.length/300):1;
   const s=[];
   for(let i=0;i<pts.length;i+=step) s.push(pts[i]);
@@ -1154,21 +1154,20 @@ function pathSelfIntersects(pts){
     }
   }
 
-  // 2. Loop detector — catches spirals that don't technically cross.
-  // If the path accumulates > ~240° of net rotation in one direction it
-  // has made a loop that no real vehicle movement would produce.
+  // 2. Loop detector — tracks cumulative rotation in each direction
+  // independently. A normal U-turn = ~180° one direction. A loop = ~360°.
+  // Threshold: 300° in either direction = impossible real-world movement.
   if(pts.length>=3){
-    let net=0, maxNet=0;
+    let cw=0, ccw=0;
     for(let i=1;i<pts.length-1;i++){
       const a=pts[i-1],b=pts[i],c=pts[i+1];
       let d=Math.atan2(c.y-b.y,c.x-b.x)-Math.atan2(b.y-a.y,b.x-a.x);
       while(d> Math.PI) d-=2*Math.PI;
       while(d<-Math.PI) d+=2*Math.PI;
-      net+=d;
-      if(Math.abs(net)>maxNet) maxNet=Math.abs(net);
+      if(d>0) cw+=d; else ccw-=d;
+      // > 300 degrees in one direction = loop
+      if(cw>Math.PI*5/3||ccw>Math.PI*5/3) return true;
     }
-    // > 240 degrees net rotation → loop
-    if(maxNet>Math.PI*4/3) return true;
   }
 
   return false;

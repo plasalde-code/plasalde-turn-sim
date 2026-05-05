@@ -1118,19 +1118,22 @@ function segIntersect(a,b,c,d){
 }
 
 function cleanPolygon(pts){
-  // Iteratively find the first self-intersection and clip the ear,
-  // repeat until the polygon is clean or guard limit is reached.
+  // Clip small ear artifacts from the envelope polygon caused by tight curves.
+  // Safety: if more than 35% of points are removed the input is a ring/loop
+  // shape that must not be clipped — return the original unchanged.
+  const minKeep=Math.floor(pts.length*0.65);
   let p=pts.slice();
   let guard=0,found=true;
-  while(found&&guard++<60){
+  while(found&&guard++<20){
     found=false;
     outer:for(let i=0;i<p.length-1;i++){
       for(let j=i+2;j<p.length-1;j++){
-        if(i===0&&j===p.length-2) continue; // skip adjacent wrap-around pair
+        if(i===0&&j===p.length-2) continue;
         const ix=segIntersect(p[i],p[i+1],p[j],p[j+1]);
         if(ix){
-          // Replace the section between i+1..j with the crossing point
-          p=[...p.slice(0,i+1),ix,...p.slice(j+1)];
+          const next=[...p.slice(0,i+1),ix,...p.slice(j+1)];
+          if(next.length<minKeep) return pts; // would destroy ring shape — abort
+          p=next;
           found=true;
           break outer;
         }

@@ -137,9 +137,7 @@ input:focus{border-color:#ef4444}
 </div>
 
 <script>
-const sbClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON, {
-  auth: { flowType: 'implicit' }
-});
+const sbClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
 let _signupEmail = '';
 
 // If already logged in, go straight to app

@@ -15,18 +15,31 @@
 // ── AUTH GUARD ──────────────────────────────────────────────────────
 const TERMS_VERSION = 'terms_v2';
 (async()=>{
-  // Use implicit flow so OAuth tokens arrive in the URL hash (#access_token=...)
-  // and are read by getSession() immediately — no async PKCE code exchange needed.
-  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON, {
-    auth: { flowType: 'implicit' }
-  });
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
 
-  // getSession() reads the session from localStorage or from the URL hash
-  // (implicit flow) — both are synchronous reads, no network call required.
-  let {data:{session}} = await sb.auth.getSession();
+  let session = null;
 
-  // Belt-and-suspenders: wait briefly for onAuthStateChange in case the
-  // hash hasn't been processed yet (should be rare with implicit flow).
+  // Case 1: OAuth PKCE callback — URL has ?code=
+  // Must exchange the code for a session before getSession() returns it.
+  const urlParams = new URLSearchParams(window.location.search);
+  const oauthCode = urlParams.get('code');
+  if(oauthCode){
+    try{
+      const {data, error} = await sb.auth.exchangeCodeForSession(oauthCode);
+      if(data?.session) session = data.session;
+    }catch(e){}
+    // Clean the ?code= from the URL so refreshes don't re-use the one-time code
+    const clean = window.location.pathname + window.location.hash;
+    window.history.replaceState({}, '', clean);
+  }
+
+  // Case 2: Existing session in localStorage (returning user / email+password login)
+  if(!session){
+    const {data} = await sb.auth.getSession();
+    session = data?.session ?? null;
+  }
+
+  // Case 3: Wait briefly for auth state change (implicit-flow hash or delayed init)
   if(!session){
     session = await new Promise(resolve=>{
       const t = setTimeout(()=>resolve(null), 5000);

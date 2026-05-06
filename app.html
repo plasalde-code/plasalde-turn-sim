@@ -15,29 +15,23 @@
 // ── AUTH GUARD ──────────────────────────────────────────────────────
 const TERMS_VERSION = 'terms_v2';
 (async()=>{
-  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+  // Use implicit flow so OAuth tokens arrive in the URL hash (#access_token=...)
+  // and are read by getSession() immediately — no async PKCE code exchange needed.
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON, {
+    auth: { flowType: 'implicit' }
+  });
 
-  // Detect OAuth callback: Supabase PKCE puts ?code= in the URL;
-  // legacy implicit flow puts #access_token= in the hash.
-  const isOAuthReturn = window.location.search.includes('code=') ||
-                        window.location.hash.includes('access_token');
-
-  // getSession() triggers the PKCE code-exchange when ?code= is present.
+  // getSession() reads the session from localStorage or from the URL hash
+  // (implicit flow) — both are synchronous reads, no network call required.
   let {data:{session}} = await sb.auth.getSession();
 
-  // If no session yet, wait for onAuthStateChange to fire.
-  // Give much more time when we know this is an OAuth return — the code
-  // exchange round-trip to Supabase can take several seconds.
+  // Belt-and-suspenders: wait briefly for onAuthStateChange in case the
+  // hash hasn't been processed yet (should be rare with implicit flow).
   if(!session){
-    const waitMs = isOAuthReturn ? 10000 : 3000;
     session = await new Promise(resolve=>{
-      const t = setTimeout(()=>resolve(null), waitMs);
+      const t = setTimeout(()=>resolve(null), 5000);
       const {data:{subscription}} = sb.auth.onAuthStateChange((event, s)=>{
-        if(s){
-          clearTimeout(t);
-          subscription.unsubscribe();
-          resolve(s);
-        }
+        if(s){ clearTimeout(t); subscription.unsubscribe(); resolve(s); }
       });
     });
   }

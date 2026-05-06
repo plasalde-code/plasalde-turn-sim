@@ -137,7 +137,9 @@ input:focus{border-color:#ef4444}
 </div>
 
 <script>
-const sbClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+const sbClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON, {
+  auth: { flowType: 'implicit' }
+});
 let _signupEmail = '';
 
 // If already logged in, go straight to app
@@ -212,7 +214,7 @@ async function doGoogleSignup(){
   const {error} = await sbClient.auth.signInWithOAuth({
     provider: 'google',
     options:{
-      redirectTo: 'https://plasalde-turn-sim.vercel.app/login.html',
+      redirectTo: 'https://plasalde-turn-sim.vercel.app/app.html',
       queryParams: { prompt: 'select_account' }
     }
   });

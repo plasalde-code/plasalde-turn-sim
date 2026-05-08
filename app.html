@@ -2887,73 +2887,101 @@ function getExportData(){
 }
 
 // ── DXF Export ────────────────────────────────────────────────────
+
+// UTM projection (WGS-84) — converts lat/lng to real-world easting/northing (m)
+function _latLngToUTM(lat,lng){
+  const a=6378137,f=1/298.257223563,e2=2*f-f*f,ep2=e2/(1-e2),k0=0.9996;
+  const zone=Math.floor((lng+180)/6)+1;
+  const lon0=((zone-1)*6-180+3)*Math.PI/180;
+  const φ=lat*Math.PI/180,λ=lng*Math.PI/180,Δλ=λ-lon0;
+  const sinφ=Math.sin(φ),cosφ=Math.cos(φ),tanφ=Math.tan(φ);
+  const N=a/Math.sqrt(1-e2*sinφ*sinφ);
+  const T=tanφ*tanφ,C=ep2*cosφ*cosφ,A=cosφ*Δλ;
+  const M=a*((1-e2/4-3*e2*e2/64-5*e2*e2*e2/256)*φ
+    -(3*e2/8+3*e2*e2/32+45*e2*e2*e2/1024)*Math.sin(2*φ)
+    +(15*e2*e2/256+45*e2*e2*e2/1024)*Math.sin(4*φ)
+    -(35*e2*e2*e2/3072)*Math.sin(6*φ));
+  const E=k0*N*(A+(1-T+C)*A*A*A/6+(5-18*T+T*T+72*C-58*ep2)*A*A*A*A*A/120)+500000;
+  const Nv=k0*(M+N*tanφ*(A*A/2+(5-T+9*C+4*C*C)*A*A*A*A/24
+    +(61-58*T+T*T+600*C-330*ep2)*A*A*A*A*A*A/720))+(lat<0?10000000:0);
+  return{easting:E,northing:Nv,zone,northern:lat>=0};
+}
+
+// OGC WKT for the relevant UTM zone — AutoCAD/Civil 3D reads this to assign CRS
+function _utmWKT(zone,northern){
+  const lon0=(zone-1)*6-180+3,fn=northern?0:10000000;
+  const epsg=northern?32600+zone:32700+zone,ns=northern?'N':'S';
+  return `PROJCS["WGS 84 / UTM zone ${zone}${ns}",`
+    +`GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],`
+    +`PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]],`
+    +`PROJECTION["Transverse_Mercator"],`
+    +`PARAMETER["latitude_of_origin",0],PARAMETER["central_meridian",${lon0}],`
+    +`PARAMETER["scale_factor",0.9996],PARAMETER["false_easting",500000],`
+    +`PARAMETER["false_northing",${fn}],UNIT["metre",1],AUTHORITY["EPSG","${epsg}"]]`;
+}
+
 function exportDXF(){
   const data=getExportData();
   if(!data){alert('Draw a path with at least 2 points first.');return;}
   const{pathPts,tracks,env,effectivePpm}=data;
 
-  // Pixel → DXF world coordinates (meters, Y-up)
-  let toXY;
-  if(S.aerial&&S.leaflet){
-    const ctr=S.leaflet.getCenter();
-    const Rearth=6378137, olat=ctr.lat*Math.PI/180;
+  // When aerial map is active: convert pixels → real UTM easting/northing (metres)
+  // Otherwise: convert pixels → local feet coordinate system
+  const isGeo=S.aerial&&S.leaflet;
+  let toXY,ctrUTM=null,ctrLL=null;
+  if(isGeo){
+    ctrLL=S.leaflet.getCenter();
+    ctrUTM=_latLngToUTM(ctrLL.lat,ctrLL.lng);
     toXY=pt=>{
       const ll=S.leaflet.containerPointToLatLng([pt.x,pt.y]);
-      return{
-        x:Rearth*(ll.lng-ctr.lng)*Math.PI/180*Math.cos(olat),
-        y:Rearth*(ll.lat-ctr.lat)*Math.PI/180
-      };
+      const u=_latLngToUTM(ll.lat,ll.lng);
+      return{x:u.easting,y:u.northing};
     };
   } else {
-    toXY=pt=>({x:pt.x/effectivePpm, y:-pt.y/effectivePpm});
+    toXY=pt=>({x:pt.x/effectivePpm,y:-pt.y/effectivePpm});
   }
 
-  // R12-format POLYLINE/VERTEX/SEQEND — universally supported by all CAD apps
+  // POLYLINE/VERTEX/SEQEND — supported by all CAD applications
   function polyline(pts,layer,closed){
     if(!pts||pts.length<2) return '';
-    const flag=closed?1:0;
-    let s=`0\nPOLYLINE\n8\n${layer}\n66\n1\n10\n0.0\n20\n0.0\n30\n0.0\n70\n${flag}\n`;
-    for(const p of pts){
-      const c=toXY(p);
-      s+=`0\nVERTEX\n8\n${layer}\n10\n${c.x.toFixed(4)}\n20\n${c.y.toFixed(4)}\n30\n0.0\n`;
-    }
-    s+=`0\nSEQEND\n8\n${layer}\n`;
-    return s;
+    let s=`0\nPOLYLINE\n8\n${layer}\n66\n1\n10\n0.0\n20\n0.0\n30\n0.0\n70\n${closed?1:0}\n`;
+    for(const p of pts){const c=toXY(p);s+=`0\nVERTEX\n8\n${layer}\n10\n${c.x.toFixed(4)}\n20\n${c.y.toFixed(4)}\n30\n0.0\n`;}
+    return s+`0\nSEQEND\n8\n${layer}\n`;
   }
 
-  // Layer table: [name, ACI colour index]
   const layerDefs=[
-    ['CENTERLINE',5],       // blue
-    ['FRONT-WHEEL',1],      // red
-    ['FRONT-OVERHANG',4],   // cyan
-    ['REAR-AXLE',3],        // green
-    ['TRAILER-AXLE',2],     // yellow
-    ['SWEPT-ENVELOPE',6],   // magenta
+    ['CENTERLINE',5],['FRONT-WHEEL',1],['FRONT-OVERHANG',4],
+    ['REAR-AXLE',3],['TRAILER-AXLE',2],['SWEPT-ENVELOPE',6],
   ];
 
-  // ── DXF R12 (AC1009) ─────────────────────────────────────────────
+  // Geo export → R2010 (AC1024, supports GEOGRAPHICDATA + online map backgrounds)
+  // Non-geo → R12 (AC1009, maximum compatibility)
+  const acVer=isGeo?'AC1024':'AC1009';
+  const insUnits=isGeo?6:2; // 6=metres, 2=feet
+
   let dxf='';
-  // HEADER
+  // ── HEADER ──────────────────────────────────────────────────────────
   dxf+='0\nSECTION\n2\nHEADER\n';
-  dxf+='9\n$ACADVER\n1\nAC1009\n';   // R12 — broadest compatibility
-  dxf+='9\n$INSUNITS\n70\n2\n';      // 2 = feet
-  dxf+='9\n$EXTMIN\n10\n0.0\n20\n0.0\n30\n0.0\n';
-  dxf+='9\n$EXTMAX\n10\n1000.0\n20\n1000.0\n30\n0.0\n';
+  dxf+=`9\n$ACADVER\n1\n${acVer}\n`;
+  dxf+=`9\n$INSUNITS\n70\n${insUnits}\n`;
+  if(isGeo&&ctrUTM){
+    dxf+=`9\n$EXTMIN\n10\n${(ctrUTM.easting-2000).toFixed(2)}\n20\n${(ctrUTM.northing-2000).toFixed(2)}\n30\n0.0\n`;
+    dxf+=`9\n$EXTMAX\n10\n${(ctrUTM.easting+2000).toFixed(2)}\n20\n${(ctrUTM.northing+2000).toFixed(2)}\n30\n0.0\n`;
+  } else {
+    dxf+='9\n$EXTMIN\n10\n0.0\n20\n0.0\n30\n0.0\n';
+    dxf+='9\n$EXTMAX\n10\n1000.0\n20\n1000.0\n30\n0.0\n';
+  }
   dxf+='0\nENDSEC\n';
-  // TABLES
+  // ── TABLES ──────────────────────────────────────────────────────────
   dxf+='0\nSECTION\n2\nTABLES\n';
-  // LTYPE table (required — at minimum define CONTINUOUS)
   dxf+='0\nTABLE\n2\nLTYPE\n70\n1\n';
   dxf+='0\nLTYPE\n2\nCONTINUOUS\n70\n0\n3\nSolid line\n72\n65\n73\n0\n40\n0.0\n';
   dxf+='0\nENDTAB\n';
-  // LAYER table
   dxf+='0\nTABLE\n2\nLAYER\n70\n'+layerDefs.length+'\n';
-  for(const[n,c]of layerDefs){
-    dxf+=`0\nLAYER\n2\n${n}\n70\n0\n62\n${c}\n6\nCONTINUOUS\n`;
-  }
+  for(const[n,c]of layerDefs) dxf+=`0\nLAYER\n2\n${n}\n70\n0\n62\n${c}\n6\nCONTINUOUS\n`;
   dxf+='0\nENDTAB\n';
   dxf+='0\nENDSEC\n';
-  // ENTITIES
+  // ── ENTITIES ────────────────────────────────────────────────────────
   dxf+='0\nSECTION\n2\nENTITIES\n';
   dxf+=polyline(pathPts,'CENTERLINE',false);
   dxf+=polyline(tracks.fL,'FRONT-WHEEL',false);
@@ -2968,7 +2996,35 @@ function exportDXF(){
   }
   const swPoly=cleanPolygon([...env.leftB,...[...env.rightB].reverse()]);
   dxf+=polyline(swPoly,'SWEPT-ENVELOPE',true);
-  dxf+='0\nENDSEC\n0\nEOF\n';
+  dxf+='0\nENDSEC\n';
+
+  // ── OBJECTS — GEOGRAPHICDATA (R2010 georeferenced export only) ───────
+  // Embeds UTM coordinate system + reference point so AutoCAD/Civil 3D can
+  // automatically align online map backgrounds (Bing, Esri) to the drawing.
+  if(isGeo&&ctrUTM&&ctrLL){
+    const projWKT=_utmWKT(ctrUTM.zone,ctrUTM.northern);
+    const geogWKT=`GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],`
+      +`PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433],AUTHORITY["EPSG","4326"]]`;
+    dxf+='0\nSECTION\n2\nOBJECTS\n';
+    // Root object dictionary → ACAD_GEOGRAPHICDATA entry
+    dxf+='0\nDICTIONARY\n5\nC0\n330\n0\n100\nAcDbDictionary\n281\n1\n3\nACAD_GEOGRAPHICDATA\n350\nC1\n';
+    // GEOGRAPHICDATA entity
+    dxf+='0\nGEOGRAPHICDATA\n5\nC1\n330\nC0\n100\nAcDbGeoData\n';
+    dxf+='70\n2\n';  // data version (must be 2)
+    // Design point: UTM coordinates of the map centre (model-space origin of the geo reference)
+    dxf+=`10\n${ctrUTM.easting.toFixed(4)}\n20\n${ctrUTM.northing.toFixed(4)}\n30\n0.0\n`;
+    // Geographic reference point: longitude, latitude of the same point
+    dxf+=`11\n${ctrLL.lng.toFixed(8)}\n21\n${ctrLL.lat.toFixed(8)}\n`;
+    // North direction (0,1 = model +Y points north), unit scale = 1 m/unit
+    dxf+='40\n0.0\n41\n1.0\n42\n0.0\n43\n0.0\n44\n1.0\n45\n0.0\n';
+    // Misc flags (scale estimation=none, no sea-level correction)
+    dxf+='95\n0\n141\n0.0\n294\n0\n142\n0.0\n143\n0.0\n';
+    // Coordinate system WKT strings (301=projected, 302=geographic)
+    dxf+=`301\n${projWKT}\n302\n${geogWKT}\n73\n0\n`;
+    dxf+='0\nENDSEC\n';
+  }
+
+  dxf+='0\nEOF\n';
 
   const blob=new Blob([dxf],{type:'text/plain'});
   const a=document.createElement('a');

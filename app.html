@@ -2953,20 +2953,19 @@ function exportDXF(){
     ['CENTERLINE',5],['FRONT-WHEEL',1],['FRONT-OVERHANG',4],
     ['REAR-AXLE',3],['TRAILER-AXLE',2],['SWEPT-ENVELOPE',6],
   ];
+  // Add GEOREF info layer when exporting with geo coordinates
+  if(isGeo) layerDefs.push(['GEOREF',3]);
 
-  // Geo export → R2010 (AC1024, supports GEOGRAPHICDATA + online map backgrounds)
-  // Non-geo → R12 (AC1009, maximum compatibility)
-  const acVer=isGeo?'AC1024':'AC1009';
-  const insUnits=isGeo?6:2; // 6=metres, 2=feet
-
+  // Always use R12 (AC1009) — broadest compatibility, no missing-table errors.
+  // Geo mode uses real UTM easting/northing so coordinates are true world metres.
   let dxf='';
   // ── HEADER ──────────────────────────────────────────────────────────
   dxf+='0\nSECTION\n2\nHEADER\n';
-  dxf+=`9\n$ACADVER\n1\n${acVer}\n`;
-  dxf+=`9\n$INSUNITS\n70\n${insUnits}\n`;
+  dxf+='9\n$ACADVER\n1\nAC1009\n';
+  dxf+=`9\n$INSUNITS\n70\n${isGeo?6:2}\n`; // 6=metres, 2=feet
   if(isGeo&&ctrUTM){
-    dxf+=`9\n$EXTMIN\n10\n${(ctrUTM.easting-2000).toFixed(2)}\n20\n${(ctrUTM.northing-2000).toFixed(2)}\n30\n0.0\n`;
-    dxf+=`9\n$EXTMAX\n10\n${(ctrUTM.easting+2000).toFixed(2)}\n20\n${(ctrUTM.northing+2000).toFixed(2)}\n30\n0.0\n`;
+    dxf+=`9\n$EXTMIN\n10\n${(ctrUTM.easting-500).toFixed(2)}\n20\n${(ctrUTM.northing-500).toFixed(2)}\n30\n0.0\n`;
+    dxf+=`9\n$EXTMAX\n10\n${(ctrUTM.easting+500).toFixed(2)}\n20\n${(ctrUTM.northing+500).toFixed(2)}\n30\n0.0\n`;
   } else {
     dxf+='9\n$EXTMIN\n10\n0.0\n20\n0.0\n30\n0.0\n';
     dxf+='9\n$EXTMAX\n10\n1000.0\n20\n1000.0\n30\n0.0\n';
@@ -2996,34 +2995,19 @@ function exportDXF(){
   }
   const swPoly=cleanPolygon([...env.leftB,...[...env.rightB].reverse()]);
   dxf+=polyline(swPoly,'SWEPT-ENVELOPE',true);
-  dxf+='0\nENDSEC\n';
 
-  // ── OBJECTS — GEOGRAPHICDATA (R2010 georeferenced export only) ───────
-  // Embeds UTM coordinate system + reference point so AutoCAD/Civil 3D can
-  // automatically align online map backgrounds (Bing, Esri) to the drawing.
+  // Geo-reference annotation — TEXT entity on GEOREF layer near the path origin.
+  // AutoCAD Map 3D: type ADEASSIGNCRDSYS and enter the EPSG code shown here,
+  // then enable Online Map → the aerial will lock to the drawing automatically.
   if(isGeo&&ctrUTM&&ctrLL){
-    const projWKT=_utmWKT(ctrUTM.zone,ctrUTM.northern);
-    const geogWKT=`GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],`
-      +`PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433],AUTHORITY["EPSG","4326"]]`;
-    dxf+='0\nSECTION\n2\nOBJECTS\n';
-    // Root object dictionary → ACAD_GEOGRAPHICDATA entry
-    dxf+='0\nDICTIONARY\n5\nC0\n330\n0\n100\nAcDbDictionary\n281\n1\n3\nACAD_GEOGRAPHICDATA\n350\nC1\n';
-    // GEOGRAPHICDATA entity
-    dxf+='0\nGEOGRAPHICDATA\n5\nC1\n330\nC0\n100\nAcDbGeoData\n';
-    dxf+='70\n2\n';  // data version (must be 2)
-    // Design point: UTM coordinates of the map centre (model-space origin of the geo reference)
-    dxf+=`10\n${ctrUTM.easting.toFixed(4)}\n20\n${ctrUTM.northing.toFixed(4)}\n30\n0.0\n`;
-    // Geographic reference point: longitude, latitude of the same point
-    dxf+=`11\n${ctrLL.lng.toFixed(8)}\n21\n${ctrLL.lat.toFixed(8)}\n`;
-    // North direction (0,1 = model +Y points north), unit scale = 1 m/unit
-    dxf+='40\n0.0\n41\n1.0\n42\n0.0\n43\n0.0\n44\n1.0\n45\n0.0\n';
-    // Misc flags (scale estimation=none, no sea-level correction)
-    dxf+='95\n0\n141\n0.0\n294\n0\n142\n0.0\n143\n0.0\n';
-    // Coordinate system WKT strings (301=projected, 302=geographic)
-    dxf+=`301\n${projWKT}\n302\n${geogWKT}\n73\n0\n`;
-    dxf+='0\nENDSEC\n';
+    const epsg=ctrUTM.northern?32600+ctrUTM.zone:32700+ctrUTM.zone;
+    const ns=ctrUTM.northern?'N':'S';
+    const label=`CRS: WGS84 UTM Zone ${ctrUTM.zone}${ns}  |  EPSG:${epsg}  |  Ref: ${ctrLL.lat.toFixed(6)}, ${ctrLL.lng.toFixed(6)}`;
+    const tx=ctrUTM.easting, ty=ctrUTM.northing+30;
+    dxf+=`0\nTEXT\n8\nGEOREF\n10\n${tx.toFixed(2)}\n20\n${ty.toFixed(2)}\n30\n0.0\n40\n5.0\n1\n${label}\n`;
   }
 
+  dxf+='0\nENDSEC\n';
   dxf+='0\nEOF\n';
 
   const blob=new Blob([dxf],{type:'text/plain'});

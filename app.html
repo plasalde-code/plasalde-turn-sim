@@ -3071,12 +3071,14 @@ async function exportDXF(){
     return s;
   }
 
-  const swPoly=cleanPolygon([...env.leftB,...[...env.rightB].reverse()]);
   const stem=`turn-${S.vehicle.code}-${Date.now()}`;
 
   // ── NON-GEO: plain R12 DXF ──────────────────────────────────────────
   if(!isGeo){
-    const ld=[['CENTERLINE',5],['FRONT-WHEEL',1],['FRONT-OVERHANG',4],['REAR-AXLE',3],['TRAILER-AXLE',2],['SWEPT-ENVELOPE',6]];
+    // Layers: centerline (yellow), front wheels (cyan), rear axle (green), trailer axle (magenta)
+    const hasTrailer=tracks.tL&&tracks.tL.length>0;
+    const ld=[['CENTERLINE',2],['FRONT-WHEEL',4],['REAR-AXLE',3]];
+    if(hasTrailer) ld.push(['TRAILER-AXLE',6]);
     let d='0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1009\n9\n$INSUNITS\n70\n2\n';
     d+='9\n$EXTMIN\n10\n0.0\n20\n0.0\n30\n0.0\n9\n$EXTMAX\n10\n1000.0\n20\n1000.0\n30\n0.0\n0\nENDSEC\n';
     d+='0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLTYPE\n70\n1\n';
@@ -3084,11 +3086,11 @@ async function exportDXF(){
     d+=`0\nTABLE\n2\nLAYER\n70\n${ld.length}\n`;
     for(const[n,c]of ld) d+=`0\nLAYER\n2\n${n}\n70\n0\n62\n${c}\n6\nCONTINUOUS\n`;
     d+='0\nENDTAB\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n';
-    d+=polyline(pathPts,'CENTERLINE',false)+polyline(tracks.fL,'FRONT-WHEEL',false)+polyline(tracks.fR,'FRONT-WHEEL',false);
-    d+=polyline(tracks.fOL,'FRONT-OVERHANG',false)+polyline(tracks.fOR,'FRONT-OVERHANG',false);
+    d+=polyline(pathPts,'CENTERLINE',false);
+    d+=polyline(tracks.fL,'FRONT-WHEEL',false)+polyline(tracks.fR,'FRONT-WHEEL',false);
     d+=polyline(tracks.p1L,'REAR-AXLE',false)+polyline(tracks.p1R,'REAR-AXLE',false);
-    if(tracks.tL.length) d+=polyline(tracks.tL,'TRAILER-AXLE',false)+polyline(tracks.tR,'TRAILER-AXLE',false);
-    d+=polyline(swPoly,'SWEPT-ENVELOPE',true)+'0\nENDSEC\n0\nEOF\n';
+    if(hasTrailer) d+=polyline(tracks.tL,'TRAILER-AXLE',false)+polyline(tracks.tR,'TRAILER-AXLE',false);
+    d+='0\nENDSEC\n0\nEOF\n';
     const blob=new Blob([d],{type:'text/plain'});
     const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`${stem}.dxf`; a.click();
     return;
@@ -3115,8 +3117,9 @@ async function exportDXF(){
   }
 
   // ── Layer definitions (geo mode) ────────────────────────────────────
-  const ld=[['CENTERLINE',5],['FRONT-WHEEL',1],['FRONT-OVERHANG',4],
-            ['REAR-AXLE',3],['TRAILER-AXLE',2],['SWEPT-ENVELOPE',6],['GEOREF',3]];
+  const hasTrailer=tracks.tL&&tracks.tL.length>0;
+  const ld=[['CENTERLINE',2],['FRONT-WHEEL',4],['REAR-AXLE',3],['GEOREF',8]];
+  if(hasTrailer) ld.push(['TRAILER-AXLE',6]);
   if(mapCanvas) ld.push(['AERIAL',9]);
 
   // DXF handles (all valid hex). Layout:
@@ -3215,13 +3218,11 @@ async function exportDXF(){
     d+=`340\nB2\n70\n7\n280\n0\n281\n50\n282\n50\n283\n0\n360\nB3\n`;      // IMAGEDEF handle + flags
   }
 
-  // Vector paths — use lwpoly (LWPOLYLINE) for proper R2000 format with handles
+  // Vector paths — centerline + wheel tracks only (no overhang, no swept envelope)
   d+=lwpoly(pathPts,'CENTERLINE',false);
   d+=lwpoly(tracks.fL,'FRONT-WHEEL',false)+lwpoly(tracks.fR,'FRONT-WHEEL',false);
-  d+=lwpoly(tracks.fOL,'FRONT-OVERHANG',false)+lwpoly(tracks.fOR,'FRONT-OVERHANG',false);
   d+=lwpoly(tracks.p1L,'REAR-AXLE',false)+lwpoly(tracks.p1R,'REAR-AXLE',false);
-  if(tracks.tL.length) d+=lwpoly(tracks.tL,'TRAILER-AXLE',false)+lwpoly(tracks.tR,'TRAILER-AXLE',false);
-  d+=lwpoly(swPoly,'SWEPT-ENVELOPE',true);
+  if(hasTrailer) d+=lwpoly(tracks.tL,'TRAILER-AXLE',false)+lwpoly(tracks.tR,'TRAILER-AXLE',false);
 
   // GEOREF annotation text — with R2000 handle + subclass markers
   const lbl=`CRS: WGS84 UTM Zone ${ctrUTM.zone}${ns}  EPSG:${epsg}  Ref:${ctrLL.lat.toFixed(6)},${ctrLL.lng.toFixed(6)}`;

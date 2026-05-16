@@ -2900,68 +2900,85 @@ async function _captureLeafletView(){
     const size=map.getSize();
     const dispZoom=map.getZoom();
 
-    // Use Leaflet's internal _tileZoom which already accounts for maxNativeZoom.
-    // If we request tiles at displayZoom > maxNativeZoom (e.g. zoom 20 when Esri caps at 19)
-    // we'd get 404s. _tileZoom is the actual zoom used for tile requests.
-    const tileZoom = (tl._tileZoom != null)
-      ? tl._tileZoom
-      : Math.min(Math.round(dispZoom), tl.options.maxNativeZoom || 22);
-
+    // Clamp to maxNativeZoom — requests above this return 404 from Esri
+    const tileZoom=(tl._tileZoom!=null)
+      ?tl._tileZoom
+      :Math.min(Math.round(dispZoom),tl.options.maxNativeZoom||22);
     const tileSize=tl.options.tileSize||256;
-
-    // When tileZoom < dispZoom, Leaflet scales up tiles — each tile covers more screen pixels.
-    const tileDrawPx=Math.round(tileSize * Math.pow(2, Math.round(dispZoom)-tileZoom));
-
+    // Each native tile covers tileDrawPx screen pixels when displayZoom > tileZoom
+    const tileDrawPx=Math.round(tileSize*Math.pow(2,Math.round(dispZoom)-tileZoom));
     const n2z=Math.pow(2,tileZoom);
 
-    // Lat/lng → tile grid at tileZoom
-    const toTile=(lat,lng)=>({
-      x:Math.floor((lng+180)/360*n2z),
-      y:Math.floor((1-Math.log(Math.tan(lat*Math.PI/180)+1/Math.cos(lat*Math.PI/180))/Math.PI)/2*n2z)
-    });
-    // Tile grid → NW corner lat/lng at tileZoom
     const tileNW=(tx,ty)=>[
       Math.atan(Math.sinh(Math.PI*(1-2*ty/n2z)))*180/Math.PI,
       tx/n2z*360-180
     ];
-
-    const b=map.getBounds();
-    const t0=toTile(b.getNorth(),b.getWest());
-    const t1=toTile(b.getSouth(),b.getEast());
 
     const out=document.createElement('canvas');
     out.width=size.x; out.height=size.y;
     const ctx=out.getContext('2d');
     ctx.fillStyle='#111827'; ctx.fillRect(0,0,size.x,size.y);
 
-    // Fetch every visible tile via CORS fetch — bypasses browser cache CORS-taint issues.
-    // Note: Leaflet's getTileUrl() internally uses _tileZoom (ignores coords.z),
-    // so passing {x,y,z:tileZoom} correctly gets URLs at the capped zoom level.
-    const jobs=[];
-    for(let tx=t0.x;tx<=t1.x;tx++){
-      for(let ty=t0.y;ty<=t1.y;ty++){
-        jobs.push((async()=>{
-          const url=tl.getTileUrl({x:tx,y:ty,z:tileZoom});
-          try{
-            const resp=await fetch(url,{mode:'cors'});
-            if(!resp.ok) return;
-            const blob=await resp.blob();
-            const objUrl=URL.createObjectURL(blob);
-            const img=new Image();
-            await new Promise((res,rej)=>{img.onload=res;img.onerror=rej;img.src=objUrl;});
-            const[lat,lng]=tileNW(tx,ty);
-            const px=map.latLngToContainerPoint([lat,lng]);
-            ctx.drawImage(img,Math.round(px.x),Math.round(px.y),tileDrawPx,tileDrawPx);
-            URL.revokeObjectURL(objUrl);
-          }catch(e){}
-        })());
-      }
+    // ── Strategy 1: draw Leaflet's already-loaded tile <img> elements ──────
+    // Leaflet sets crossOrigin='anonymous' on every tile img (crossOrigin:true on the layer),
+    // so Esri serves them with CORS headers — they should draw without tainting the canvas.
+    let drawn=0;
+    const tileEntries=Object.values(tl._tiles||{});
+    for(const t of tileEntries){
+      const el=t.el;
+      if(!el||!el.complete||!el.naturalWidth) continue;
+      const c=t.coords;
+      const[lat,lng]=tileNW(c.x,c.y);
+      const px=map.latLngToContainerPoint([lat,lng]);
+      try{ ctx.drawImage(el,Math.round(px.x),Math.round(px.y),tileDrawPx,tileDrawPx); drawn++; }
+      catch(e){}
     }
-    await Promise.all(jobs);
+
+    // Detect canvas taint (SecurityError on getImageData means CORS was violated)
+    let tainted=false;
+    try{ ctx.getImageData(0,0,1,1); }catch(e){ tainted=true; }
+
+    // ── Strategy 2: fresh fetch with cache-busting (if DOM tiles tainted or 0 drawn) ──
+    if(tainted||drawn===0){
+      ctx.fillStyle='#111827'; ctx.fillRect(0,0,size.x,size.y);
+      const toTile=(lat,lng)=>({
+        x:Math.floor((lng+180)/360*n2z),
+        y:Math.floor((1-Math.log(Math.tan(lat*Math.PI/180)+1/Math.cos(lat*Math.PI/180))/Math.PI)/2*n2z)
+      });
+      const b=map.getBounds();
+      const t0=toTile(b.getNorth(),b.getWest());
+      const t1=toTile(b.getSouth(),b.getEast());
+      const bust=Date.now();
+      const jobs=[];
+      for(let tx=t0.x;tx<=t1.x;tx++){
+        for(let ty=t0.y;ty<=t1.y;ty++){
+          jobs.push((async()=>{
+            let url=tl.getTileUrl({x:tx,y:ty,z:tileZoom});
+            // Cache-bust so browser fetches fresh with CORS headers (bypasses stale non-CORS cache)
+            url+=(url.includes('?')?'&':'?')+'_cb='+bust;
+            try{
+              const resp=await fetch(url,{mode:'cors'});
+              if(!resp.ok) return;
+              const blob=await resp.blob();
+              const objUrl=URL.createObjectURL(blob);
+              const img=new Image();
+              await new Promise((res,rej)=>{img.onload=res;img.onerror=rej;img.src=objUrl;});
+              const[lat,lng]=tileNW(tx,ty);
+              const px=map.latLngToContainerPoint([lat,lng]);
+              ctx.drawImage(img,Math.round(px.x),Math.round(px.y),tileDrawPx,tileDrawPx);
+              URL.revokeObjectURL(objUrl);
+            }catch(e){}
+          })());
+        }
+      }
+      await Promise.all(jobs);
+    }
 
     // Verify at least one non-background pixel was drawn
-    const mid=ctx.getImageData(Math.floor(size.x/2),Math.floor(size.y/2),1,1).data;
-    if(mid[0]===0x11&&mid[1]===0x18&&mid[2]===0x27) return null;
+    try{
+      const mid=ctx.getImageData(Math.floor(size.x/2),Math.floor(size.y/2),1,1).data;
+      if(mid[0]===0x11&&mid[1]===0x18&&mid[2]===0x27) return null;
+    }catch(e){ return null; } // still tainted
 
     return out;
   }catch(e){ return null; }

@@ -2888,27 +2888,67 @@ function getExportData(){
 
 // ── DXF Export ────────────────────────────────────────────────────
 
-// Capture the visible Leaflet tile layer to an off-screen canvas.
-// Uses getBoundingClientRect() so all CSS transforms are accounted for automatically.
-// Returns null if tiles are CORS-blocked or unavailable.
+// Capture the visible Leaflet tile layer by re-fetching tiles directly via fetch().
+// This avoids canvas CORS-taint issues that occur when drawing <img> elements
+// loaded by the browser (which may be cached without the CORS headers we need).
 async function _captureLeafletView(){
   try{
-    const container=S.leaflet.getContainer();
-    const cRect=container.getBoundingClientRect();
-    const sz=S.leaflet.getSize();
+    const map=S.leaflet;
+    const tl=S._tileLayer;
+    if(!tl) return null;
+
+    const size=map.getSize();
+    const zoom=map.getZoom();            // always integer (Leaflet snaps by default)
+    const n2z=Math.pow(2,zoom);
+    const tileSize=tl.options.tileSize||256;
+
+    // Lat/lng → tile grid coordinate
+    const toTile=(lat,lng)=>({
+      x:Math.floor((lng+180)/360*n2z),
+      y:Math.floor((1-Math.log(Math.tan(lat*Math.PI/180)+1/Math.cos(lat*Math.PI/180))/Math.PI)/2*n2z)
+    });
+    // Tile grid coordinate → NW corner lat/lng
+    const tileNW=(tx,ty)=>[
+      Math.atan(Math.sinh(Math.PI*(1-2*ty/n2z)))*180/Math.PI,
+      tx/n2z*360-180
+    ];
+
+    const b=map.getBounds();
+    const t0=toTile(b.getNorth(),b.getWest());
+    const t1=toTile(b.getSouth(),b.getEast());
+
     const out=document.createElement('canvas');
-    out.width=sz.x; out.height=sz.y;
+    out.width=size.x; out.height=size.y;
     const ctx=out.getContext('2d');
-    ctx.fillStyle='#111827'; ctx.fillRect(0,0,sz.x,sz.y);
-    const imgs=container.querySelectorAll('img.leaflet-tile');
-    for(const img of imgs){
-      if(!img.complete||img.naturalWidth===0) continue;
-      const r=img.getBoundingClientRect();
-      const x=Math.round(r.left-cRect.left), y=Math.round(r.top-cRect.top);
-      try{ ctx.drawImage(img,x,y,Math.round(r.width),Math.round(r.height)); }catch(e){}
+    ctx.fillStyle='#111827'; ctx.fillRect(0,0,size.x,size.y);
+
+    // Fetch every visible tile via CORS-enabled fetch() — avoids browser cache taint issues
+    const jobs=[];
+    for(let tx=t0.x;tx<=t1.x;tx++){
+      for(let ty=t0.y;ty<=t1.y;ty++){
+        jobs.push((async()=>{
+          const url=tl.getTileUrl({x:tx,y:ty,z:zoom});
+          try{
+            const resp=await fetch(url,{mode:'cors'});
+            if(!resp.ok) return;
+            const blob=await resp.blob();
+            const objUrl=URL.createObjectURL(blob);
+            const img=new Image();
+            await new Promise((res,rej)=>{img.onload=res;img.onerror=rej;img.src=objUrl;});
+            const[lat,lng]=tileNW(tx,ty);
+            const px=map.latLngToContainerPoint([lat,lng]);
+            ctx.drawImage(img,Math.round(px.x),Math.round(px.y),tileSize,tileSize);
+            URL.revokeObjectURL(objUrl);
+          }catch(e){}
+        })());
+      }
     }
-    // Test canvas isn't CORS-tainted
-    out.getContext('2d').getImageData(0,0,1,1);
+    await Promise.all(jobs);
+
+    // Verify at least one non-background pixel was drawn
+    const mid=ctx.getImageData(Math.floor(size.x/2),Math.floor(size.y/2),1,1).data;
+    if(mid[0]===0x11&&mid[1]===0x18&&mid[2]===0x27) return null; // still background — tiles failed
+
     return out;
   }catch(e){ return null; }
 }

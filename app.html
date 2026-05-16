@@ -2888,6 +2888,47 @@ function getExportData(){
 
 // ── DXF Export ────────────────────────────────────────────────────
 
+// Capture the visible Leaflet tile layer to an off-screen canvas.
+// Uses getBoundingClientRect() so all CSS transforms are accounted for automatically.
+// Returns null if tiles are CORS-blocked or unavailable.
+async function _captureLeafletView(){
+  try{
+    const container=S.leaflet.getContainer();
+    const cRect=container.getBoundingClientRect();
+    const sz=S.leaflet.getSize();
+    const out=document.createElement('canvas');
+    out.width=sz.x; out.height=sz.y;
+    const ctx=out.getContext('2d');
+    ctx.fillStyle='#111827'; ctx.fillRect(0,0,sz.x,sz.y);
+    const imgs=container.querySelectorAll('img.leaflet-tile');
+    for(const img of imgs){
+      if(!img.complete||img.naturalWidth===0) continue;
+      const r=img.getBoundingClientRect();
+      const x=Math.round(r.left-cRect.left), y=Math.round(r.top-cRect.top);
+      try{ ctx.drawImage(img,x,y,Math.round(r.width),Math.round(r.height)); }catch(e){}
+    }
+    // Test canvas isn't CORS-tainted
+    out.getContext('2d').getImageData(0,0,1,1);
+    return out;
+  }catch(e){ return null; }
+}
+
+// Generate a PNG world file (.pgw) — 6-line text that tells AutoCAD/GIS tools
+// the real-world position and resolution of aerial.png in UTM metres.
+function _calcWorldFile(map){
+  const sz=map.getSize();
+  const tl=map.containerPointToLatLng([0,0]);
+  const tr=map.containerPointToLatLng([sz.x,0]);
+  const bl=map.containerPointToLatLng([0,sz.y]);
+  const uTL=_latLngToUTM(tl.lat,tl.lng);
+  const uTR=_latLngToUTM(tr.lat,tr.lng);
+  const uBL=_latLngToUTM(bl.lat,bl.lng);
+  const pxW=(uTR.easting -uTL.easting) /sz.x; // m/px X (positive → right)
+  const pxH=(uBL.northing-uTL.northing)/sz.y; // m/px Y (negative → down)
+  return[pxW.toFixed(8),'0.0','0.0',pxH.toFixed(8),
+         uTL.easting.toFixed(4),uTL.northing.toFixed(4)].join('\n');
+}
+
 // UTM projection (WGS-84) — converts lat/lng to real-world easting/northing (m)
 function _latLngToUTM(lat,lng){
   const a=6378137,f=1/298.257223563,e2=2*f-f*f,ep2=e2/(1-e2),k0=0.9996;
@@ -2920,13 +2961,11 @@ function _utmWKT(zone,northern){
     +`PARAMETER["false_northing",${fn}],UNIT["metre",1],AUTHORITY["EPSG","${epsg}"]]`;
 }
 
-function exportDXF(){
+async function exportDXF(){
   const data=getExportData();
   if(!data){alert('Draw a path with at least 2 points first.');return;}
   const{pathPts,tracks,env,effectivePpm}=data;
 
-  // When aerial map is active: convert pixels → real UTM easting/northing (metres)
-  // Otherwise: convert pixels → local feet coordinate system
   const isGeo=S.aerial&&S.leaflet;
   let toXY,ctrUTM=null,ctrLL=null;
   if(isGeo){
@@ -2941,7 +2980,7 @@ function exportDXF(){
     toXY=pt=>({x:pt.x/effectivePpm,y:-pt.y/effectivePpm});
   }
 
-  // POLYLINE/VERTEX/SEQEND — supported by all CAD applications
+  // POLYLINE/VERTEX/SEQEND helper — works in both R12 and R2000
   function polyline(pts,layer,closed){
     if(!pts||pts.length<2) return '';
     let s=`0\nPOLYLINE\n8\n${layer}\n66\n1\n10\n0.0\n20\n0.0\n30\n0.0\n70\n${closed?1:0}\n`;
@@ -2949,71 +2988,201 @@ function exportDXF(){
     return s+`0\nSEQEND\n8\n${layer}\n`;
   }
 
-  const layerDefs=[
-    ['CENTERLINE',5],['FRONT-WHEEL',1],['FRONT-OVERHANG',4],
-    ['REAR-AXLE',3],['TRAILER-AXLE',2],['SWEPT-ENVELOPE',6],
-  ];
-  // Add GEOREF info layer when exporting with geo coordinates
-  if(isGeo) layerDefs.push(['GEOREF',3]);
-
-  // Always use R12 (AC1009) — broadest compatibility, no missing-table errors.
-  // Geo mode uses real UTM easting/northing so coordinates are true world metres.
-  let dxf='';
-  // ── HEADER ──────────────────────────────────────────────────────────
-  dxf+='0\nSECTION\n2\nHEADER\n';
-  dxf+='9\n$ACADVER\n1\nAC1009\n';
-  dxf+=`9\n$INSUNITS\n70\n${isGeo?6:2}\n`; // 6=metres, 2=feet
-  if(isGeo&&ctrUTM){
-    dxf+=`9\n$EXTMIN\n10\n${(ctrUTM.easting-500).toFixed(2)}\n20\n${(ctrUTM.northing-500).toFixed(2)}\n30\n0.0\n`;
-    dxf+=`9\n$EXTMAX\n10\n${(ctrUTM.easting+500).toFixed(2)}\n20\n${(ctrUTM.northing+500).toFixed(2)}\n30\n0.0\n`;
-  } else {
-    dxf+='9\n$EXTMIN\n10\n0.0\n20\n0.0\n30\n0.0\n';
-    dxf+='9\n$EXTMAX\n10\n1000.0\n20\n1000.0\n30\n0.0\n';
-  }
-  dxf+='0\nENDSEC\n';
-  // ── TABLES ──────────────────────────────────────────────────────────
-  dxf+='0\nSECTION\n2\nTABLES\n';
-  dxf+='0\nTABLE\n2\nLTYPE\n70\n1\n';
-  dxf+='0\nLTYPE\n2\nCONTINUOUS\n70\n0\n3\nSolid line\n72\n65\n73\n0\n40\n0.0\n';
-  dxf+='0\nENDTAB\n';
-  dxf+='0\nTABLE\n2\nLAYER\n70\n'+layerDefs.length+'\n';
-  for(const[n,c]of layerDefs) dxf+=`0\nLAYER\n2\n${n}\n70\n0\n62\n${c}\n6\nCONTINUOUS\n`;
-  dxf+='0\nENDTAB\n';
-  dxf+='0\nENDSEC\n';
-  // ── ENTITIES ────────────────────────────────────────────────────────
-  dxf+='0\nSECTION\n2\nENTITIES\n';
-  dxf+=polyline(pathPts,'CENTERLINE',false);
-  dxf+=polyline(tracks.fL,'FRONT-WHEEL',false);
-  dxf+=polyline(tracks.fR,'FRONT-WHEEL',false);
-  dxf+=polyline(tracks.fOL,'FRONT-OVERHANG',false);
-  dxf+=polyline(tracks.fOR,'FRONT-OVERHANG',false);
-  dxf+=polyline(tracks.p1L,'REAR-AXLE',false);
-  dxf+=polyline(tracks.p1R,'REAR-AXLE',false);
-  if(tracks.tL.length){
-    dxf+=polyline(tracks.tL,'TRAILER-AXLE',false);
-    dxf+=polyline(tracks.tR,'TRAILER-AXLE',false);
-  }
   const swPoly=cleanPolygon([...env.leftB,...[...env.rightB].reverse()]);
-  dxf+=polyline(swPoly,'SWEPT-ENVELOPE',true);
+  const stem=`turn-${S.vehicle.code}-${Date.now()}`;
 
-  // Geo-reference annotation — TEXT entity on GEOREF layer near the path origin.
-  // AutoCAD Map 3D: type ADEASSIGNCRDSYS and enter the EPSG code shown here,
-  // then enable Online Map → the aerial will lock to the drawing automatically.
-  if(isGeo&&ctrUTM&&ctrLL){
-    const epsg=ctrUTM.northern?32600+ctrUTM.zone:32700+ctrUTM.zone;
-    const ns=ctrUTM.northern?'N':'S';
-    const label=`CRS: WGS84 UTM Zone ${ctrUTM.zone}${ns}  |  EPSG:${epsg}  |  Ref: ${ctrLL.lat.toFixed(6)}, ${ctrLL.lng.toFixed(6)}`;
-    const tx=ctrUTM.easting, ty=ctrUTM.northing+30;
-    dxf+=`0\nTEXT\n8\nGEOREF\n10\n${tx.toFixed(2)}\n20\n${ty.toFixed(2)}\n30\n0.0\n40\n5.0\n1\n${label}\n`;
+  // ── NON-GEO: plain R12 DXF ──────────────────────────────────────────
+  if(!isGeo){
+    const ld=[['CENTERLINE',5],['FRONT-WHEEL',1],['FRONT-OVERHANG',4],['REAR-AXLE',3],['TRAILER-AXLE',2],['SWEPT-ENVELOPE',6]];
+    let d='0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1009\n9\n$INSUNITS\n70\n2\n';
+    d+='9\n$EXTMIN\n10\n0.0\n20\n0.0\n30\n0.0\n9\n$EXTMAX\n10\n1000.0\n20\n1000.0\n30\n0.0\n0\nENDSEC\n';
+    d+='0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLTYPE\n70\n1\n';
+    d+='0\nLTYPE\n2\nCONTINUOUS\n70\n0\n3\nSolid line\n72\n65\n73\n0\n40\n0.0\n0\nENDTAB\n';
+    d+=`0\nTABLE\n2\nLAYER\n70\n${ld.length}\n`;
+    for(const[n,c]of ld) d+=`0\nLAYER\n2\n${n}\n70\n0\n62\n${c}\n6\nCONTINUOUS\n`;
+    d+='0\nENDTAB\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n';
+    d+=polyline(pathPts,'CENTERLINE',false)+polyline(tracks.fL,'FRONT-WHEEL',false)+polyline(tracks.fR,'FRONT-WHEEL',false);
+    d+=polyline(tracks.fOL,'FRONT-OVERHANG',false)+polyline(tracks.fOR,'FRONT-OVERHANG',false);
+    d+=polyline(tracks.p1L,'REAR-AXLE',false)+polyline(tracks.p1R,'REAR-AXLE',false);
+    if(tracks.tL.length) d+=polyline(tracks.tL,'TRAILER-AXLE',false)+polyline(tracks.tR,'TRAILER-AXLE',false);
+    d+=polyline(swPoly,'SWEPT-ENVELOPE',true)+'0\nENDSEC\n0\nEOF\n';
+    const blob=new Blob([d],{type:'text/plain'});
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`${stem}.dxf`; a.click();
+    return;
   }
 
-  dxf+='0\nENDSEC\n';
-  dxf+='0\nEOF\n';
+  // ── GEO: try to capture aerial tiles ────────────────────────────────
+  const mapCanvas=await _captureLeafletView();
 
-  const blob=new Blob([dxf],{type:'text/plain'});
+  // ── IMAGE entity geometry ────────────────────────────────────────────
+  // Insertion = SW corner of view; U vector = right (per pixel); V vector = up (per pixel)
+  let imgInsX=0,imgInsY=0,imgUX=0,imgUY=0,imgVX=0,imgVY=0,imgW=0,imgH=0;
+  if(mapCanvas){
+    const sz=S.leaflet.getSize();
+    imgW=sz.x; imgH=sz.y;
+    const swLL=S.leaflet.containerPointToLatLng([0,sz.y]);
+    const seLL=S.leaflet.containerPointToLatLng([sz.x,sz.y]);
+    const nwLL=S.leaflet.containerPointToLatLng([0,0]);
+    const uSW=_latLngToUTM(swLL.lat,swLL.lng);
+    const uSE=_latLngToUTM(seLL.lat,seLL.lng);
+    const uNW=_latLngToUTM(nwLL.lat,nwLL.lng);
+    imgInsX=uSW.easting;  imgInsY=uSW.northing;
+    imgUX=(uSE.easting -uSW.easting) /imgW; imgUY=(uSE.northing-uSW.northing)/imgW;
+    imgVX=(uNW.easting -uSW.easting) /imgH; imgVY=(uNW.northing-uSW.northing)/imgH;
+  }
+
+  // ── Layer definitions (geo mode) ────────────────────────────────────
+  const ld=[['CENTERLINE',5],['FRONT-WHEEL',1],['FRONT-OVERHANG',4],
+            ['REAR-AXLE',3],['TRAILER-AXLE',2],['SWEPT-ENVELOPE',6],['GEOREF',3]];
+  if(mapCanvas) ld.push(['AERIAL',9]);
+
+  // DXF handles (all valid hex). Layout:
+  //  80=VPORT tbl  81=*Active vport   82=LTYPE tbl  83=CONTINUOUS
+  //  84=LAYER tbl  85-8E=layer entries  8F=STYLE tbl  90=Standard style
+  //  91=VIEW tbl   92=UCS tbl  93=APPID tbl  94=ACAD appid
+  //  95=DIMSTYLE tbl  96=Std dimstyle  97=BLKREC tbl  98=*Model_Space rec  99=*Paper_Space rec
+  //  9A=*Model_Space blk  9B=endblk  9C=*Paper_Space blk  9D=endblk
+  //  A0=IMAGE entity  B0=root obj dict  B1=img dict  B2=IMAGEDEF  B3=IMAGEDEF_REACTOR
+
+  const arc='WinobjARX|Product Desc:     ObjectDBX Classes|Company:          Autodesk|WEB Address:      www.autodesk.com';
+
+  let d='';
+
+  // HEADER
+  const epsg=ctrUTM.northern?32600+ctrUTM.zone:32700+ctrUTM.zone;
+  const ns=ctrUTM.northern?'N':'S';
+  d+='0\nSECTION\n2\nHEADER\n';
+  d+='9\n$ACADVER\n1\nAC1015\n';   // R2000 — minimum version supporting IMAGE entity
+  d+='9\n$INSUNITS\n70\n6\n';      // 6 = metres
+  d+=`9\n$EXTMIN\n10\n${(ctrUTM.easting-500).toFixed(2)}\n20\n${(ctrUTM.northing-500).toFixed(2)}\n30\n0.0\n`;
+  d+=`9\n$EXTMAX\n10\n${(ctrUTM.easting+500).toFixed(2)}\n20\n${(ctrUTM.northing+500).toFixed(2)}\n30\n0.0\n`;
+  d+='9\n$HANDSEED\n5\nFFFF\n';
+  d+='0\nENDSEC\n';
+
+  // CLASSES — required for IMAGE/IMAGEDEF/IMAGEDEF_REACTOR proxy objects
+  d+='0\nSECTION\n2\nCLASSES\n';
+  if(mapCanvas){
+    d+=`0\nCLASS\n1\nIMAGE\n2\nAcDbRasterImage\n3\n${arc}\n90\n0\n91\n1\n280\n0\n281\n1\n`;
+    d+=`0\nCLASS\n1\nIMAGEDEF\n2\nAcDbRasterImageDef\n3\n${arc}\n90\n0\n91\n1\n280\n0\n281\n0\n`;
+    d+=`0\nCLASS\n1\nIMAGEDEF_REACTOR\n2\nAcDbRasterImageDefReactor\n3\n${arc}\n90\n1\n91\n1\n280\n0\n281\n0\n`;
+  }
+  d+='0\nENDSEC\n';
+
+  // TABLES — full set required for R2000
+  d+='0\nSECTION\n2\nTABLES\n';
+  // VPORT
+  d+='0\nTABLE\n2\nVPORT\n5\n80\n330\n0\n100\nAcDbSymbolTable\n70\n1\n';
+  d+=`0\nVPORT\n5\n81\n330\n80\n100\nAcDbSymbolTableRecord\n100\nAcDbViewportTableRecord\n2\n*Active\n70\n0\n`;
+  d+=`10\n0.0\n20\n0.0\n11\n1.0\n21\n1.0\n12\n${ctrUTM.easting.toFixed(2)}\n22\n${ctrUTM.northing.toFixed(2)}\n`;
+  d+=`13\n0.0\n23\n0.0\n14\n1.0\n24\n1.0\n15\n0.0\n25\n0.0\n16\n0.0\n26\n0.0\n36\n1.0\n`;
+  d+=`17\n0.0\n27\n0.0\n37\n0.0\n40\n2000.0\n41\n1.0\n42\n50.0\n43\n0.0\n44\n4.0\n50\n0.0\n51\n0.0\n71\n0\n72\n100\n73\n1\n74\n3\n75\n0\n76\n1\n77\n0\n78\n0\n`;
+  d+='0\nENDTAB\n';
+  // LTYPE
+  d+='0\nTABLE\n2\nLTYPE\n5\n82\n330\n0\n100\nAcDbSymbolTable\n70\n1\n';
+  d+='0\nLTYPE\n5\n83\n330\n82\n100\nAcDbSymbolTableRecord\n100\nAcDbLinetypeTableRecord\n2\nCONTINUOUS\n70\n0\n3\nSolid line\n72\n65\n73\n0\n40\n0.0\n';
+  d+='0\nENDTAB\n';
+  // LAYER
+  d+=`0\nTABLE\n2\nLAYER\n5\n84\n330\n0\n100\nAcDbSymbolTable\n70\n${ld.length}\n`;
+  ld.forEach(([n,c],i)=>{
+    d+=`0\nLAYER\n5\n${(0x85+i).toString(16).toUpperCase()}\n330\n84\n100\nAcDbSymbolTableRecord\n100\nAcDbLayerTableRecord\n2\n${n}\n70\n0\n62\n${c}\n6\nCONTINUOUS\n`;
+  });
+  d+='0\nENDTAB\n';
+  // STYLE
+  d+='0\nTABLE\n2\nSTYLE\n5\n8F\n330\n0\n100\nAcDbSymbolTable\n70\n1\n';
+  d+='0\nSTYLE\n5\n90\n330\n8F\n100\nAcDbSymbolTableRecord\n100\nAcDbTextStyleTableRecord\n2\nStandard\n70\n0\n40\n0.0\n41\n1.0\n50\n0.0\n71\n0\n42\n2.5\n3\ntxt\n4\n\n';
+  d+='0\nENDTAB\n';
+  // VIEW (empty)
+  d+='0\nTABLE\n2\nVIEW\n5\n91\n330\n0\n100\nAcDbSymbolTable\n70\n0\n0\nENDTAB\n';
+  // UCS (empty)
+  d+='0\nTABLE\n2\nUCS\n5\n92\n330\n0\n100\nAcDbSymbolTable\n70\n0\n0\nENDTAB\n';
+  // APPID
+  d+='0\nTABLE\n2\nAPPID\n5\n93\n330\n0\n100\nAcDbSymbolTable\n70\n1\n';
+  d+='0\nAPPID\n5\n94\n330\n93\n100\nAcDbSymbolTableRecord\n100\nAcDbRegAppTableRecord\n2\nACAD\n70\n0\n';
+  d+='0\nENDTAB\n';
+  // DIMSTYLE
+  d+='0\nTABLE\n2\nDIMSTYLE\n5\n95\n330\n0\n100\nAcDbSymbolTable\n70\n1\n';
+  d+='0\nDIMSTYLE\n5\n96\n330\n95\n100\nAcDbSymbolTableRecord\n100\nAcDbDimStyleTableRecord\n2\nStandard\n70\n0\n';
+  d+='0\nENDTAB\n';
+  // BLOCK_RECORD
+  d+='0\nTABLE\n2\nBLOCK_RECORD\n5\n97\n330\n0\n100\nAcDbSymbolTable\n70\n2\n';
+  d+='0\nBLOCK_RECORD\n5\n98\n330\n97\n100\nAcDbSymbolTableRecord\n100\nAcDbBlockTableRecord\n2\n*Model_Space\n';
+  d+='0\nBLOCK_RECORD\n5\n99\n330\n97\n100\nAcDbSymbolTableRecord\n100\nAcDbBlockTableRecord\n2\n*Paper_Space\n';
+  d+='0\nENDTAB\n';
+  d+='0\nENDSEC\n';
+
+  // BLOCKS — required even if empty
+  d+='0\nSECTION\n2\nBLOCKS\n';
+  d+='0\nBLOCK\n5\n9A\n330\n98\n100\nAcDbEntity\n8\n0\n100\nAcDbBlockBegin\n2\n*Model_Space\n70\n0\n10\n0.0\n20\n0.0\n30\n0.0\n3\n*Model_Space\n1\n\n';
+  d+='0\nENDBLK\n5\n9B\n330\n98\n100\nAcDbEntity\n8\n0\n100\nAcDbBlockEnd\n';
+  d+='0\nBLOCK\n5\n9C\n330\n99\n100\nAcDbEntity\n8\n0\n100\nAcDbBlockBegin\n2\n*Paper_Space\n70\n0\n10\n0.0\n20\n0.0\n30\n0.0\n3\n*Paper_Space\n1\n\n';
+  d+='0\nENDBLK\n5\n9D\n330\n99\n100\nAcDbEntity\n8\n0\n100\nAcDbBlockEnd\n';
+  d+='0\nENDSEC\n';
+
+  // ENTITIES
+  d+='0\nSECTION\n2\nENTITIES\n';
+
+  // IMAGE entity — positions aerial.png in model space using UTM coordinates.
+  // NanoCAD/AutoCAD search for aerial.png in the same folder as the DXF.
+  if(mapCanvas){
+    d+=`0\nIMAGE\n5\nA0\n330\n98\n100\nAcDbEntity\n8\nAERIAL\n100\nAcDbRasterImage\n`;
+    d+=`10\n${imgInsX.toFixed(4)}\n20\n${imgInsY.toFixed(4)}\n30\n0.0\n`;  // insertion (SW corner, UTM)
+    d+=`11\n${imgUX.toFixed(10)}\n21\n${imgUY.toFixed(10)}\n31\n0.0\n`;    // U vector (m/pixel rightward)
+    d+=`12\n${imgVX.toFixed(10)}\n22\n${imgVY.toFixed(10)}\n32\n0.0\n`;    // V vector (m/pixel upward)
+    d+=`13\n${imgW.toFixed(1)}\n23\n${imgH.toFixed(1)}\n`;                 // image size (pixels)
+    d+=`340\nB2\n70\n7\n280\n0\n281\n50\n282\n50\n283\n0\n360\nB3\n`;      // IMAGEDEF handle + flags
+  }
+
+  // Vector paths
+  d+=polyline(pathPts,'CENTERLINE',false);
+  d+=polyline(tracks.fL,'FRONT-WHEEL',false)+polyline(tracks.fR,'FRONT-WHEEL',false);
+  d+=polyline(tracks.fOL,'FRONT-OVERHANG',false)+polyline(tracks.fOR,'FRONT-OVERHANG',false);
+  d+=polyline(tracks.p1L,'REAR-AXLE',false)+polyline(tracks.p1R,'REAR-AXLE',false);
+  if(tracks.tL.length) d+=polyline(tracks.tL,'TRAILER-AXLE',false)+polyline(tracks.tR,'TRAILER-AXLE',false);
+  d+=polyline(swPoly,'SWEPT-ENVELOPE',true);
+
+  // GEOREF annotation text
+  const lbl=`CRS: WGS84 UTM Zone ${ctrUTM.zone}${ns}  EPSG:${epsg}  Ref:${ctrLL.lat.toFixed(6)},${ctrLL.lng.toFixed(6)}`;
+  d+=`0\nTEXT\n8\nGEOREF\n10\n${ctrUTM.easting.toFixed(2)}\n20\n${(ctrUTM.northing+40).toFixed(2)}\n30\n0.0\n40\n5.0\n1\n${lbl}\n`;
+  d+='0\nENDSEC\n';
+
+  // OBJECTS — root dictionary + IMAGEDEF chain
+  d+='0\nSECTION\n2\nOBJECTS\n';
+  if(mapCanvas){
+    d+='0\nDICTIONARY\n5\nB0\n330\n0\n100\nAcDbDictionary\n281\n1\n3\nACAD_IMAGE_DICT\n350\nB1\n';
+    d+='0\nDICTIONARY\n5\nB1\n330\nB0\n100\nAcDbDictionary\n281\n0\n3\naerial\n350\nB2\n';
+    // IMAGEDEF: defines aerial.png file + pixel dimensions
+    d+=`0\nIMAGEDEF\n5\nB2\n330\nB1\n100\nAcDbRasterImageDef\n90\n0\n1\naerial.png\n10\n${imgW.toFixed(1)}\n20\n${imgH.toFixed(1)}\n11\n0.0000925926\n21\n0.0000925926\n280\n1\n281\n5\n`;
+    // IMAGEDEF_REACTOR: back-pointer from IMAGEDEF to the IMAGE entity
+    d+='0\nIMAGEDEF_REACTOR\n5\nB3\n330\nB2\n100\nAcDbRasterImageDefReactor\n90\n2\n330\nA0\n';
+  } else {
+    d+='0\nDICTIONARY\n5\nB0\n330\n0\n100\nAcDbDictionary\n281\n1\n';
+  }
+  d+='0\nENDSEC\n0\nEOF\n';
+
+  // ── Bundle into ZIP ──────────────────────────────────────────────────
+  const zip=new JSZip();
+  zip.file(`${stem}.dxf`,d);
+  if(mapCanvas){
+    const pngBlob=await new Promise(res=>mapCanvas.toBlob(res,'image/png'));
+    zip.file('aerial.png',pngBlob);
+    zip.file('aerial.pgw',_calcWorldFile(S.leaflet)); // world file for GIS tools
+  }
+  const readme=
+    `Coordinate System: WGS 84 / UTM Zone ${ctrUTM.zone}${ns} (EPSG:${epsg})\n\n`+
+    `Files:\n`+
+    `  ${stem}.dxf  — vehicle turn paths with embedded aerial image reference\n`+
+    (mapCanvas?`  aerial.png   — captured satellite imagery\n  aerial.pgw   — PNG world file (for GIS tools)\n`:'')+
+    `\nHow to open (NanoCAD / AutoCAD):\n`+
+    `  1. Extract ALL files to the same folder\n`+
+    `  2. Open ${stem}.dxf from that folder\n`+
+    (mapCanvas?`  3. aerial.png is attached automatically via the IMAGE entity\n`:`  3. No aerial captured (CORS restriction) — assign CRS manually\n`)+
+    `\nTo enable online map tiles (AutoCAD Map 3D only):\n`+
+    `  ADEASSIGNCRDSYS → UTM-${ctrUTM.zone}${ns} (EPSG:${epsg}) → Online Map → Enable`;
+  zip.file('README.txt',readme);
+  const zipBlob=await zip.generateAsync({type:'blob',compression:'DEFLATE'});
   const a=document.createElement('a');
-  a.href=URL.createObjectURL(blob);
-  a.download=`turn-${S.vehicle.code}-${Date.now()}.dxf`;
+  a.href=URL.createObjectURL(zipBlob);
+  a.download=`${stem}.zip`;
   a.click();
 }
 

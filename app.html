@@ -2898,16 +2898,28 @@ async function _captureLeafletView(){
     if(!tl) return null;
 
     const size=map.getSize();
-    const zoom=map.getZoom();            // always integer (Leaflet snaps by default)
-    const n2z=Math.pow(2,zoom);
+    const dispZoom=map.getZoom();
+
+    // Use Leaflet's internal _tileZoom which already accounts for maxNativeZoom.
+    // If we request tiles at displayZoom > maxNativeZoom (e.g. zoom 20 when Esri caps at 19)
+    // we'd get 404s. _tileZoom is the actual zoom used for tile requests.
+    const tileZoom = (tl._tileZoom != null)
+      ? tl._tileZoom
+      : Math.min(Math.round(dispZoom), tl.options.maxNativeZoom || 22);
+
     const tileSize=tl.options.tileSize||256;
 
-    // Lat/lng → tile grid coordinate
+    // When tileZoom < dispZoom, Leaflet scales up tiles — each tile covers more screen pixels.
+    const tileDrawPx=Math.round(tileSize * Math.pow(2, Math.round(dispZoom)-tileZoom));
+
+    const n2z=Math.pow(2,tileZoom);
+
+    // Lat/lng → tile grid at tileZoom
     const toTile=(lat,lng)=>({
       x:Math.floor((lng+180)/360*n2z),
       y:Math.floor((1-Math.log(Math.tan(lat*Math.PI/180)+1/Math.cos(lat*Math.PI/180))/Math.PI)/2*n2z)
     });
-    // Tile grid coordinate → NW corner lat/lng
+    // Tile grid → NW corner lat/lng at tileZoom
     const tileNW=(tx,ty)=>[
       Math.atan(Math.sinh(Math.PI*(1-2*ty/n2z)))*180/Math.PI,
       tx/n2z*360-180
@@ -2922,12 +2934,14 @@ async function _captureLeafletView(){
     const ctx=out.getContext('2d');
     ctx.fillStyle='#111827'; ctx.fillRect(0,0,size.x,size.y);
 
-    // Fetch every visible tile via CORS-enabled fetch() — avoids browser cache taint issues
+    // Fetch every visible tile via CORS fetch — bypasses browser cache CORS-taint issues.
+    // Note: Leaflet's getTileUrl() internally uses _tileZoom (ignores coords.z),
+    // so passing {x,y,z:tileZoom} correctly gets URLs at the capped zoom level.
     const jobs=[];
     for(let tx=t0.x;tx<=t1.x;tx++){
       for(let ty=t0.y;ty<=t1.y;ty++){
         jobs.push((async()=>{
-          const url=tl.getTileUrl({x:tx,y:ty,z:zoom});
+          const url=tl.getTileUrl({x:tx,y:ty,z:tileZoom});
           try{
             const resp=await fetch(url,{mode:'cors'});
             if(!resp.ok) return;
@@ -2937,7 +2951,7 @@ async function _captureLeafletView(){
             await new Promise((res,rej)=>{img.onload=res;img.onerror=rej;img.src=objUrl;});
             const[lat,lng]=tileNW(tx,ty);
             const px=map.latLngToContainerPoint([lat,lng]);
-            ctx.drawImage(img,Math.round(px.x),Math.round(px.y),tileSize,tileSize);
+            ctx.drawImage(img,Math.round(px.x),Math.round(px.y),tileDrawPx,tileDrawPx);
             URL.revokeObjectURL(objUrl);
           }catch(e){}
         })());
@@ -2947,7 +2961,7 @@ async function _captureLeafletView(){
 
     // Verify at least one non-background pixel was drawn
     const mid=ctx.getImageData(Math.floor(size.x/2),Math.floor(size.y/2),1,1).data;
-    if(mid[0]===0x11&&mid[1]===0x18&&mid[2]===0x27) return null; // still background — tiles failed
+    if(mid[0]===0x11&&mid[1]===0x18&&mid[2]===0x27) return null;
 
     return out;
   }catch(e){ return null; }

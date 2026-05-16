@@ -3020,12 +3020,24 @@ async function exportDXF(){
     toXY=pt=>({x:pt.x/effectivePpm,y:-pt.y/effectivePpm});
   }
 
-  // POLYLINE/VERTEX/SEQEND helper — works in both R12 and R2000
+  // R12 POLYLINE helper (used by non-geo export only)
   function polyline(pts,layer,closed){
     if(!pts||pts.length<2) return '';
     let s=`0\nPOLYLINE\n8\n${layer}\n66\n1\n10\n0.0\n20\n0.0\n30\n0.0\n70\n${closed?1:0}\n`;
     for(const p of pts){const c=toXY(p);s+=`0\nVERTEX\n8\n${layer}\n10\n${c.x.toFixed(4)}\n20\n${c.y.toFixed(4)}\n30\n0.0\n`;}
     return s+`0\nSEQEND\n8\n${layer}\n`;
+  }
+
+  // R2000 LWPOLYLINE helper — proper handles + subclass markers required for AC1015
+  // Each call consumes one handle from the counter.
+  let _geoHandle=0xA1; // IMAGE entity is A0; entities start at A1
+  function lwpoly(pts,layer,closed){
+    if(!pts||pts.length<2) return '';
+    const h=(_geoHandle++).toString(16).toUpperCase();
+    let s=`0\nLWPOLYLINE\n5\n${h}\n330\n98\n100\nAcDbEntity\n8\n${layer}\n100\nAcDbPolyline\n`;
+    s+=`90\n${pts.length}\n70\n${closed?1:0}\n`;
+    for(const p of pts){const c=toXY(p);s+=`10\n${c.x.toFixed(4)}\n20\n${c.y.toFixed(4)}\n`;}
+    return s;
   }
 
   const swPoly=cleanPolygon([...env.leftB,...[...env.rightB].reverse()]);
@@ -3172,17 +3184,18 @@ async function exportDXF(){
     d+=`340\nB2\n70\n7\n280\n0\n281\n50\n282\n50\n283\n0\n360\nB3\n`;      // IMAGEDEF handle + flags
   }
 
-  // Vector paths
-  d+=polyline(pathPts,'CENTERLINE',false);
-  d+=polyline(tracks.fL,'FRONT-WHEEL',false)+polyline(tracks.fR,'FRONT-WHEEL',false);
-  d+=polyline(tracks.fOL,'FRONT-OVERHANG',false)+polyline(tracks.fOR,'FRONT-OVERHANG',false);
-  d+=polyline(tracks.p1L,'REAR-AXLE',false)+polyline(tracks.p1R,'REAR-AXLE',false);
-  if(tracks.tL.length) d+=polyline(tracks.tL,'TRAILER-AXLE',false)+polyline(tracks.tR,'TRAILER-AXLE',false);
-  d+=polyline(swPoly,'SWEPT-ENVELOPE',true);
+  // Vector paths — use lwpoly (LWPOLYLINE) for proper R2000 format with handles
+  d+=lwpoly(pathPts,'CENTERLINE',false);
+  d+=lwpoly(tracks.fL,'FRONT-WHEEL',false)+lwpoly(tracks.fR,'FRONT-WHEEL',false);
+  d+=lwpoly(tracks.fOL,'FRONT-OVERHANG',false)+lwpoly(tracks.fOR,'FRONT-OVERHANG',false);
+  d+=lwpoly(tracks.p1L,'REAR-AXLE',false)+lwpoly(tracks.p1R,'REAR-AXLE',false);
+  if(tracks.tL.length) d+=lwpoly(tracks.tL,'TRAILER-AXLE',false)+lwpoly(tracks.tR,'TRAILER-AXLE',false);
+  d+=lwpoly(swPoly,'SWEPT-ENVELOPE',true);
 
-  // GEOREF annotation text
+  // GEOREF annotation text — with R2000 handle + subclass markers
   const lbl=`CRS: WGS84 UTM Zone ${ctrUTM.zone}${ns}  EPSG:${epsg}  Ref:${ctrLL.lat.toFixed(6)},${ctrLL.lng.toFixed(6)}`;
-  d+=`0\nTEXT\n8\nGEOREF\n10\n${ctrUTM.easting.toFixed(2)}\n20\n${(ctrUTM.northing+40).toFixed(2)}\n30\n0.0\n40\n5.0\n1\n${lbl}\n`;
+  {const th=(_geoHandle++).toString(16).toUpperCase();
+  d+=`0\nTEXT\n5\n${th}\n330\n98\n100\nAcDbEntity\n8\nGEOREF\n100\nAcDbText\n10\n${ctrUTM.easting.toFixed(2)}\n20\n${(ctrUTM.northing+40).toFixed(2)}\n30\n0.0\n40\n5.0\n1\n${lbl}\n100\nAcDbText\n`;}
   d+='0\nENDSEC\n';
 
   // OBJECTS — root dictionary + IMAGEDEF chain

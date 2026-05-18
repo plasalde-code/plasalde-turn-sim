@@ -995,18 +995,35 @@ function simulateAxles(pathPts,veh,ppm){
   let pivot=vsub(pathPts[0],vscl(dir0,L1));
   let trail=L2>0?vsub(pivot,vscl(dir0,L2)):null;
 
+  // Max sub-step size: 8% of the shorter wheelbase segment.
+  // Keeps the trailer direction vector from flipping >90° in one step,
+  // which causes the visible "loop" artifact on tight U-turns.
+  const subStep=Math.min(L1, L2>0?L2:L1)*0.08;
+
   const frames=[];
+  let prevFront=pathPts[0];
+
   for(const p of pathPts){
     const front={x:p.x,y:p.y};
-    // Pull pivot to maintain L1 from front
-    const d1=vsub(front,pivot);
-    if(vlen(d1)>0.001) pivot=vsub(front,vscl(vnorm(d1),L1));
 
-    if(L2>0&&trail){
-      // Pull trailer rear to maintain L2 from pivot
-      const d2=vsub(pivot,trail);
-      if(vlen(d2)>0.001) trail=vsub(pivot,vscl(vnorm(d2),L2));
+    // Sub-step: if the path step is large, integrate in small increments
+    // so the chain simulation stays stable through tight curves.
+    const dist=vlen(vsub(front,prevFront));
+    const steps=dist>subStep?Math.ceil(dist/subStep):1;
+    for(let s=1;s<=steps;s++){
+      const t=s/steps;
+      const fi={x:prevFront.x+(front.x-prevFront.x)*t, y:prevFront.y+(front.y-prevFront.y)*t};
+      // Pull pivot to maintain L1 from front
+      const d1=vsub(fi,pivot);
+      if(vlen(d1)>0.001) pivot=vsub(fi,vscl(vnorm(d1),L1));
+      // Pull trailer to maintain L2 from pivot
+      if(L2>0&&trail){
+        const d2=vsub(pivot,trail);
+        if(vlen(d2)>0.001) trail=vsub(pivot,vscl(vnorm(d2),L2));
+      }
     }
+
+    prevFront=front;
     frames.push({
       frontAxle:{x:front.x,y:front.y},
       pivotAxle:{x:pivot.x,y:pivot.y},

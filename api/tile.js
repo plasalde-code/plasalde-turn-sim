@@ -1,7 +1,8 @@
 // Vercel serverless function — same-origin tile proxy.
 // Fetches map tiles server-side so the browser can draw them to canvas
 // without any CORS restrictions (required for DXF aerial export).
-export default async function handler(req, res) {
+// Uses CommonJS exports for maximum Vercel compatibility.
+module.exports = async function handler(req, res) {
   const { url } = req.query;
   if (!url) { res.status(400).end(); return; }
 

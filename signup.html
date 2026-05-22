@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sign Up — P.Lasalde Turn Simulator</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0f172a;color:#f1f5f9;font-family:'Segoe UI',system-ui,sans-serif;
+  min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px}
+.logo{font-size:15px;font-weight:700;color:#ef4444;margin-bottom:36px;letter-spacing:.3px}
+.card{background:#1e293b;border:1px solid #334155;border-radius:16px;padding:40px;width:100%;max-width:420px}
+h1{font-size:22px;font-weight:800;margin-bottom:6px}
+.sub{font-size:13px;color:#94a3b8;margin-bottom:28px}
+.field{margin-bottom:18px}
+label{display:block;font-size:12px;font-weight:600;color:#94a3b8;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px}
+input[type=email],input[type=password],input[type=text]{width:100%;padding:11px 14px;background:#0f172a;
+  border:1px solid #334155;border-radius:8px;color:#f1f5f9;font-size:14px;outline:none;transition:border .15s}
+input:focus{border-color:#ef4444}
+.disclaimer-box{background:#0f172a;border:1px solid #334155;border-radius:8px;padding:14px;
+  font-size:11px;color:#64748b;line-height:1.7;max-height:120px;overflow-y:auto;margin-bottom:12px}
+.check-row{display:flex;align-items:flex-start;gap:10px;cursor:pointer}
+.check-row input[type=checkbox]{width:16px;height:16px;margin-top:2px;accent-color:#ef4444;flex-shrink:0;cursor:pointer}
+.check-row span{font-size:12px;color:#94a3b8;line-height:1.5}
+.check-row span b{color:#f1f5f9}
+.btn{width:100%;padding:12px;background:#ef4444;color:#fff;border:none;border-radius:8px;
+  font-size:14px;font-weight:700;cursor:pointer;margin-top:20px;transition:background .15s}
+.btn:hover{background:#dc2626}
+.btn:disabled{background:#475569;cursor:not-allowed}
+.msg{font-size:13px;margin-top:14px;padding:10px 14px;border-radius:8px;display:none}
+.msg.error{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);color:#fca5a5}
+.footer-links{margin-top:24px;text-align:center;font-size:13px;color:#64748b}
+.footer-links a{color:#ef4444;font-weight:600}
+.divider{display:flex;align-items:center;gap:10px;margin:20px 0;color:#475569;font-size:12px}
+.divider::before,.divider::after{content:'';flex:1;height:1px;background:#334155}
+.btn-google{width:100%;padding:11px;background:#fff;color:#1f2937;border:1px solid #d1d5db;border-radius:8px;
+  font-size:14px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;transition:background .15s}
+.btn-google:hover{background:#f9fafb}
+.beta-badge{display:inline-block;background:rgba(239,68,68,.15);color:#ef4444;
+  border:1px solid rgba(239,68,68,.3);border-radius:12px;padding:2px 10px;font-size:11px;font-weight:600;margin-bottom:16px}
+
+/* Email confirmation screen */
+#confirm-screen{display:none;text-align:center}
+.confirm-icon{font-size:56px;margin-bottom:20px}
+.confirm-title{font-size:22px;font-weight:800;margin-bottom:10px;color:#f1f5f9}
+.confirm-sub{font-size:14px;color:#94a3b8;line-height:1.7;margin-bottom:24px}
+.confirm-email{display:inline-block;background:#0f172a;border:1px solid #334155;border-radius:8px;
+  padding:8px 18px;font-size:14px;font-weight:700;color:#38bdf8;margin-bottom:24px;word-break:break-all}
+.confirm-steps{text-align:left;background:#0f172a;border-radius:10px;padding:18px 20px;margin-bottom:24px}
+.confirm-steps li{font-size:13px;color:#94a3b8;margin-bottom:10px;display:flex;align-items:flex-start;gap:10px;line-height:1.5}
+.confirm-steps li:last-child{margin-bottom:0}
+.step-num{width:22px;height:22px;border-radius:50%;background:#ef4444;color:#fff;font-size:11px;font-weight:700;
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px}
+.resend-btn{background:transparent;border:1px solid #334155;color:#94a3b8;border-radius:8px;
+  padding:9px 20px;font-size:13px;cursor:pointer;transition:all .15s;width:100%;margin-bottom:10px}
+.resend-btn:hover{border-color:#ef4444;color:#f87171}
+.resend-msg{font-size:12px;color:#4ade80;text-align:center;display:none;margin-bottom:8px}
+</style>
+</head>
+<body>
+<a href="index.html" class="logo">▶ P.Lasalde Turn Simulator</a>
+
+<!-- Signup form -->
+<div class="card" id="signup-card">
+  <div class="beta-badge">Beta Version</div>
+  <h1>Create your account</h1>
+  <p class="sub">Join the beta and get full access</p>
+
+  <div class="field">
+    <label>Full Name</label>
+    <input type="text" id="name" placeholder="Your full name" autocomplete="name">
+  </div>
+  <div class="field">
+    <label>Email</label>
+    <input type="email" id="email" placeholder="you@example.com" autocomplete="email">
+  </div>
+  <div class="field">
+    <label>Password</label>
+    <input type="password" id="password" placeholder="Min. 8 characters" autocomplete="new-password">
+  </div>
+  <div class="field">
+    <label>Confirm Password</label>
+    <input type="password" id="password2" placeholder="••••••••" autocomplete="new-password">
+  </div>
+
+  <div class="field">
+    <label>Disclaimer</label>
+    <div class="disclaimer-box">
+      <strong>Planning Disclaimer:</strong> P.Lasalde Turn Simulator is provided for planning, visualization, and preliminary analysis purposes only.
+      Results are not a substitute for professional engineering analysis and should not be used as the sole
+      basis for any design, construction, or operational decision. All turning path simulations are approximate.
+      Real-world vehicle performance may vary based on driver skill, road conditions, vehicle loading, speed,
+      and other factors. P.Lasalde, its developers, and affiliates are not responsible or liable for any
+      decisions, damages, or consequences arising from the use or misuse of this software.
+      <br><br>
+      <strong>Intellectual Property:</strong> This software — including its source code, simulation algorithms,
+      vehicle library, and user interface — is the exclusive property of P.Lasalde. Unauthorized copying,
+      reproduction, modification, redistribution, or commercial use of any part of this software is strictly
+      prohibited without prior written permission. Access to this tool does not grant any license to the
+      underlying software.
+    </div>
+    <label class="check-row">
+      <input type="checkbox" id="agree">
+      <span>I have read and agree to the <b>Terms of Use</b>, including the intellectual property restrictions. I understand this tool is for planning purposes only, I may not copy or redistribute any part of this software, and I am responsible for verifying all results.</span>
+    </label>
+  </div>
+
+  <button class="btn" id="signup-btn" onclick="doSignup()">Create Free Account</button>
+  <div class="divider">or</div>
+  <button class="btn-google" onclick="doGoogleSignup()">
+    <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+    Sign up with Google
+  </button>
+  <p style="font-size:11px;color:#475569;text-align:center;margin-top:8px">By signing up with Google you agree to the Terms of Use above.</p>
+  <div class="msg" id="msg"></div>
+  <div class="footer-links">
+    Already have an account? <a href="login.html">Log in</a>
+  </div>
+</div>
+
+<!-- Email confirmation screen — replaces the form -->
+<div class="card" id="confirm-screen">
+  <div class="confirm-icon">📬</div>
+  <div class="confirm-title">Check your inbox!</div>
+  <p class="confirm-sub">We sent a confirmation link to:</p>
+  <div class="confirm-email" id="confirm-email-display"></div>
+  <ul class="confirm-steps" style="list-style:none;padding:0">
+    <li><span class="step-num">1</span>Open your email inbox (check spam if you don't see it)</li>
+    <li><span class="step-num">2</span>Click the <b style="color:#f1f5f9">Confirm your email</b> link in the message</li>
+    <li><span class="step-num">3</span>You'll be taken directly into the app — no password needed again</li>
+  </ul>
+  <div class="resend-msg" id="resend-msg">✓ New confirmation email sent!</div>
+  <button class="resend-btn" onclick="resendEmail()">Didn't get it? Resend email</button>
+  <a href="login.html" class="btn" style="display:block;text-align:center;text-decoration:none;margin-top:4px">Go to Log In →</a>
+</div>
+
+<script>
+const sbClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+let _signupEmail = '';
+
+// If already logged in, go straight to app
+sbClient.auth.getSession().then(({data:{session}})=>{
+  if(session) window.location.href='app.html';
+});
+
+// If returning from email confirmation link, session will be set — redirect to app
+sbClient.auth.onAuthStateChange((event, session)=>{
+  if((event==='SIGNED_IN'||event==='USER_UPDATED') && session){
+    window.location.href='app.html';
+  }
+});
+
+async function doSignup(){
+  const name   = document.getElementById('name').value.trim();
+  const email  = document.getElementById('email').value.trim();
+  const pw     = document.getElementById('password').value;
+  const pw2    = document.getElementById('password2').value;
+  const agreed = document.getElementById('agree').checked;
+  const btn    = document.getElementById('signup-btn');
+
+  if(!name)         { showMsg('Please enter your name.','error'); return; }
+  if(!email)        { showMsg('Please enter your email.','error'); return; }
+  if(pw.length < 8) { showMsg('Password must be at least 8 characters.','error'); return; }
+  if(pw !== pw2)    { showMsg('Passwords do not match.','error'); return; }
+  if(!agreed)       { showMsg('You must read and accept the disclaimer to continue.','error'); return; }
+
+  btn.disabled = true; btn.textContent = 'Creating account…';
+
+  const {data, error} = await sbClient.auth.signUp({
+    email, password: pw,
+    options:{
+      data:{ full_name: name, terms_v2: true },
+      emailRedirectTo: 'https://plasalde-turn-sim.vercel.app/login.html'
+    }
+  });
+
+  if(error){
+    showMsg(error.message, 'error');
+    btn.disabled = false; btn.textContent = 'Create Free Account';
+  } else if(data.session){
+    // Email confirmation disabled — go straight in
+    window.location.href = 'app.html';
+  } else {
+    // Show confirmation screen
+    _signupEmail = email;
+    showConfirmScreen(email);
+  }
+}
+
+function showConfirmScreen(email){
+  document.getElementById('signup-card').style.display = 'none';
+  document.getElementById('confirm-email-display').textContent = email;
+  document.getElementById('confirm-screen').style.display = 'block';
+}
+
+async function resendEmail(){
+  if(!_signupEmail) return;
+  const btn = document.querySelector('.resend-btn');
+  btn.disabled = true; btn.textContent = 'Sending…';
+  await sbClient.auth.resend({ type:'signup', email:_signupEmail,
+    options:{ emailRedirectTo:'https://plasalde-turn-sim.vercel.app/app.html' }
+  });
+  document.getElementById('resend-msg').style.display = 'block';
+  setTimeout(()=>{ btn.disabled=false; btn.textContent="Didn't get it? Resend email"; }, 30000);
+}
+
+async function doGoogleSignup(){
+  const agreed = document.getElementById('agree').checked;
+  if(!agreed){ showMsg('You must read and accept the disclaimer before signing up with Google.','error'); return; }
+  const {error} = await sbClient.auth.signInWithOAuth({
+    provider: 'google',
+    options:{
+      redirectTo: 'https://plasalde-turn-sim.vercel.app/app.html',
+      queryParams: { prompt: 'select_account' }
+    }
+  });
+  if(error) showMsg(error.message, 'error');
+}
+
+function showMsg(text, type){
+  const el = document.getElementById('msg');
+  el.textContent = text; el.className = 'msg '+type; el.style.display = 'block';
+}
+</script>
+</body>
+</html>

@@ -3069,23 +3069,105 @@ async function exportDXF(){
     toXY=pt=>({x:pt.x/effectivePpm,y:-pt.y/effectivePpm});
   }
 
-  // R12 POLYLINE helper (used by non-geo export only)
-  function polyline(pts,layer,closed){
-    if(!pts||pts.length<2) return '';
-    let s=`0\nPOLYLINE\n8\n${layer}\n66\n1\n10\n0.0\n20\n0.0\n30\n0.0\n70\n${closed?1:0}\n`;
-    for(const p of pts){const c=toXY(p);s+=`0\nVERTEX\n8\n${layer}\n10\n${c.x.toFixed(4)}\n20\n${c.y.toFixed(4)}\n30\n0.0\n`;}
-    return s+`0\nSEQEND\n8\n${layer}\n`;
+  // ── Arc / Line path fitting ───────────────────────────────────────────
+  // Converts dense simulation point arrays to proper CAD geometry:
+  // straight sections → LINE entities, curved sections → ARC entities.
+  // All geometry helpers work on pre-transformed {x,y} points in output coords.
+
+  // Circle through 3 non-collinear points. Returns {cx,cy,r} or null.
+  function circle3pt(a,b,c){
+    const ax=b.x-a.x,ay=b.y-a.y,bx=c.x-a.x,by=c.y-a.y;
+    const D=2*(ax*by-ay*bx);
+    if(Math.abs(D)<1e-10) return null;
+    const ux=(by*(ax*ax+ay*ay)-ay*(bx*bx+by*by))/D;
+    const uy=(ax*(bx*bx+by*by)-bx*(ax*ax+ay*ay))/D;
+    return{cx:a.x+ux,cy:a.y+uy,r:Math.sqrt(ux*ux+uy*uy)};
+  }
+  // Max cross-track deviation of pts[i..j] from line segment a→b
+  function lDev(pts,i,j,a,b){
+    const dx=b.x-a.x,dy=b.y-a.y,len=Math.hypot(dx,dy);
+    if(len<1e-12) return 0;
+    let m=0;
+    for(let k=i;k<=j;k++){const d=Math.abs((pts[k].x-a.x)*dy-(pts[k].y-a.y)*dx)/len;if(d>m)m=d;}
+    return m;
+  }
+  // Max radial deviation of pts[i..j] from circle c={cx,cy,r}
+  function cDev(pts,i,j,c){
+    let m=0;
+    for(let k=i;k<=j;k++){const d=Math.abs(Math.hypot(pts[k].x-c.cx,pts[k].y-c.cy)-c.r);if(d>m)m=d;}
+    return m;
+  }
+  // Recursive divide-and-conquer: fit pts[i..j] as LINE or ARC, or split further.
+  // Appends segment descriptors to segs[].
+  function fitSub(pts,i,j,tol,segs){
+    if(j<=i) return;
+    if(j===i+1){segs.push({t:'L',p1:pts[i],p2:pts[j]});return;}
+    // Try straight line first
+    if(lDev(pts,i,j,pts[i],pts[j])<=tol){segs.push({t:'L',p1:pts[i],p2:pts[j]});return;}
+    // Try arc through start, mid, end
+    const mid=Math.floor((i+j)/2);
+    const c=circle3pt(pts[i],pts[mid],pts[j]);
+    if(c&&c.r<5e4&&cDev(pts,i,j,c)<=tol){
+      // Determine direction: CCW if cross(radius_at_start, dir_at_start) > 0
+      const v1x=pts[i+1].x-pts[i].x,v1y=pts[i+1].y-pts[i].y;
+      const ccw=(pts[i].x-c.cx)*v1y-(pts[i].y-c.cy)*v1x>0;
+      const a1=Math.atan2(pts[i].y-c.cy,pts[i].x-c.cx)*180/Math.PI;
+      const a2=Math.atan2(pts[j].y-c.cy,pts[j].x-c.cx)*180/Math.PI;
+      segs.push({t:'A',cx:c.cx,cy:c.cy,r:c.r,a1,a2,ccw});return;
+    }
+    // Neither fits: split at point of maximum deviation from chord and recurse
+    let maxD=-1,sp=mid;
+    const dx=pts[j].x-pts[i].x,dy=pts[j].y-pts[i].y,len=Math.hypot(dx,dy);
+    for(let k=i+1;k<j;k++){
+      const d=len>1e-12?Math.abs((pts[k].x-pts[i].x)*dy-(pts[k].y-pts[i].y)*dx)/len:0;
+      if(d>maxD){maxD=d;sp=k;}
+    }
+    fitSub(pts,i,sp,tol,segs);fitSub(pts,sp,j,tol,segs);
   }
 
-  // R2000 LWPOLYLINE helper — proper handles + subclass markers required for AC1015
-  // Each call consumes one handle from the counter.
-  let _geoHandle=0xA1; // IMAGE entity is A0; entities start at A1
-  function lwpoly(pts,layer,closed){
-    if(!pts||pts.length<2) return '';
-    const h=(_geoHandle++).toString(16).toUpperCase();
-    let s=`0\nLWPOLYLINE\n5\n${h}\n330\n98\n100\nAcDbEntity\n8\n${layer}\n100\nAcDbPolyline\n`;
-    s+=`90\n${pts.length}\n70\n${closed?1:0}\n`;
-    for(const p of pts){const c=toXY(p);s+=`10\n${c.x.toFixed(4)}\n20\n${c.y.toFixed(4)}\n`;}
+  let _geoHandle=0xA1; // IMAGE entity is A0; geometry entities start at A1
+
+  // Emit R2000 LINE/ARC entities (geo mode). tol = fitting tolerance in metres.
+  function emitGeo(rawPts,layer,tol){
+    if(!rawPts||rawPts.length<2) return'';
+    const oPts=rawPts.map(p=>toXY(p));
+    const segs=[];fitSub(oPts,0,oPts.length-1,tol,segs);
+    let s='';
+    for(const seg of segs){
+      const h=(_geoHandle++).toString(16).toUpperCase();
+      if(seg.t==='L'){
+        s+=`0\nLINE\n5\n${h}\n330\n98\n100\nAcDbEntity\n8\n${layer}\n100\nAcDbLine\n`;
+        s+=`10\n${seg.p1.x.toFixed(4)}\n20\n${seg.p1.y.toFixed(4)}\n30\n0.0\n`;
+        s+=`11\n${seg.p2.x.toFixed(4)}\n21\n${seg.p2.y.toFixed(4)}\n31\n0.0\n`;
+      } else {
+        // DXF ARC is always CCW: swap start/end angles for CW arcs
+        const sa=seg.ccw?seg.a1:seg.a2,ea=seg.ccw?seg.a2:seg.a1;
+        s+=`0\nARC\n5\n${h}\n330\n98\n100\nAcDbEntity\n8\n${layer}\n100\nAcDbCircle\n`;
+        s+=`10\n${seg.cx.toFixed(4)}\n20\n${seg.cy.toFixed(4)}\n30\n0.0\n40\n${seg.r.toFixed(4)}\n`;
+        s+=`100\nAcDbArc\n50\n${sa.toFixed(6)}\n51\n${ea.toFixed(6)}\n`;
+      }
+    }
+    return s;
+  }
+
+  // Emit R12 LINE/ARC entities (non-geo mode). tol = fitting tolerance in metres.
+  function emitR12(rawPts,layer,tol){
+    if(!rawPts||rawPts.length<2) return'';
+    const oPts=rawPts.map(p=>toXY(p));
+    const segs=[];fitSub(oPts,0,oPts.length-1,tol,segs);
+    let s='';
+    for(const seg of segs){
+      if(seg.t==='L'){
+        s+=`0\nLINE\n8\n${layer}\n`;
+        s+=`10\n${seg.p1.x.toFixed(4)}\n20\n${seg.p1.y.toFixed(4)}\n30\n0.0\n`;
+        s+=`11\n${seg.p2.x.toFixed(4)}\n21\n${seg.p2.y.toFixed(4)}\n31\n0.0\n`;
+      } else {
+        const sa=seg.ccw?seg.a1:seg.a2,ea=seg.ccw?seg.a2:seg.a1;
+        s+=`0\nARC\n8\n${layer}\n`;
+        s+=`10\n${seg.cx.toFixed(4)}\n20\n${seg.cy.toFixed(4)}\n30\n0.0\n`;
+        s+=`40\n${seg.r.toFixed(4)}\n50\n${sa.toFixed(6)}\n51\n${ea.toFixed(6)}\n`;
+      }
+    }
     return s;
   }
 
@@ -3104,10 +3186,11 @@ async function exportDXF(){
     d+=`0\nTABLE\n2\nLAYER\n70\n${ld.length}\n`;
     for(const[n,c]of ld) d+=`0\nLAYER\n2\n${n}\n70\n0\n62\n${c}\n6\nCONTINUOUS\n`;
     d+='0\nENDTAB\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n';
-    d+=polyline(pathPts,'CENTERLINE',false);
-    d+=polyline(tracks.fL,'FRONT-WHEEL',false)+polyline(tracks.fR,'FRONT-WHEEL',false);
-    d+=polyline(tracks.p1L,'REAR-AXLE',false)+polyline(tracks.p1R,'REAR-AXLE',false);
-    if(hasTrailer) d+=polyline(tracks.tL,'TRAILER-AXLE',false)+polyline(tracks.tR,'TRAILER-AXLE',false);
+    const tol=0.10; // 10 cm fitting tolerance (coords are in metres via /effectivePpm)
+    d+=emitR12(pathPts,'CENTERLINE',tol);
+    d+=emitR12(tracks.fL,'FRONT-WHEEL',tol)+emitR12(tracks.fR,'FRONT-WHEEL',tol);
+    d+=emitR12(tracks.p1L,'REAR-AXLE',tol)+emitR12(tracks.p1R,'REAR-AXLE',tol);
+    if(hasTrailer) d+=emitR12(tracks.tL,'TRAILER-AXLE',tol)+emitR12(tracks.tR,'TRAILER-AXLE',tol);
     d+='0\nENDSEC\n0\nEOF\n';
     const blob=new Blob([d],{type:'text/plain'});
     const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`${stem}.dxf`; a.click();
@@ -3240,11 +3323,12 @@ async function exportDXF(){
     d+=`340\nB2\n70\n7\n280\n0\n281\n50\n282\n50\n283\n0\n360\nB3\n`;      // IMAGEDEF handle + flags
   }
 
-  // Vector paths — centerline + wheel tracks only (no overhang, no swept envelope)
-  d+=lwpoly(pathPts,'CENTERLINE',false);
-  d+=lwpoly(tracks.fL,'FRONT-WHEEL',false)+lwpoly(tracks.fR,'FRONT-WHEEL',false);
-  d+=lwpoly(tracks.p1L,'REAR-AXLE',false)+lwpoly(tracks.p1R,'REAR-AXLE',false);
-  if(hasTrailer) d+=lwpoly(tracks.tL,'TRAILER-AXLE',false)+lwpoly(tracks.tR,'TRAILER-AXLE',false);
+  // Vector paths — LINE/ARC geometry (no overhang, no swept envelope)
+  const tol=0.10; // 10 cm fitting tolerance in UTM metres
+  d+=emitGeo(pathPts,'CENTERLINE',tol);
+  d+=emitGeo(tracks.fL,'FRONT-WHEEL',tol)+emitGeo(tracks.fR,'FRONT-WHEEL',tol);
+  d+=emitGeo(tracks.p1L,'REAR-AXLE',tol)+emitGeo(tracks.p1R,'REAR-AXLE',tol);
+  if(hasTrailer) d+=emitGeo(tracks.tL,'TRAILER-AXLE',tol)+emitGeo(tracks.tR,'TRAILER-AXLE',tol);
 
   // GEOREF annotation text — with R2000 handle + subclass markers
   const lbl=`CRS: WGS84 UTM Zone ${ctrUTM.zone}${ns}  EPSG:${epsg}  Ref:${ctrLL.lat.toFixed(6)},${ctrLL.lng.toFixed(6)}`;

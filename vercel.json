@@ -1,7 +1,8 @@
 {
   "functions": {
-    "api/*.js": {
-      "runtime": "nodejs20.x"
+    "api/tile.js": {
+      "memory": 512,
+      "maxDuration": 10
     }
   }
 }

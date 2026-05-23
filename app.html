@@ -3060,14 +3060,15 @@ async function exportDXF(){
   if(isGeo){
     ctrLL=S.leaflet.getCenter();
     ctrUTM=_latLngToUTM(ctrLL.lat,ctrLL.lng);
-    toXY=pt=>{
-      const ll=S.leaflet.containerPointToLatLng([pt.x,pt.y]);
-      const u=_latLngToUTM(ll.lat,ll.lng);
-      return{x:u.easting,y:u.northing};
-    };
+    // Use canvas-relative metres (same as non-geo) so the DXF opens near 0,0
+    // in AutoCAD. UTM zone/EPSG info is preserved in the GEOREF text label.
+    toXY=pt=>({x:pt.x/effectivePpm,y:-pt.y/effectivePpm});
   } else {
     toXY=pt=>({x:pt.x/effectivePpm,y:-pt.y/effectivePpm});
   }
+  // Canvas extent in DXF metres (used for EXTMIN/EXTMAX and VPORT)
+  const _sz=isGeo?S.leaflet.getSize():{x:800,y:600};
+  const _dxfW=_sz.x/effectivePpm, _dxfH=_sz.y/effectivePpm;
 
   // ── Arc / Line path fitting ───────────────────────────────────────────
   // Direction-based curvature analysis classifies the path into straight and
@@ -3276,8 +3277,8 @@ async function exportDXF(){
   d+='0\nSECTION\n2\nHEADER\n';
   d+='9\n$ACADVER\n1\nAC1015\n';   // R2000 — minimum version supporting IMAGE entity
   d+='9\n$INSUNITS\n70\n6\n';      // 6 = metres
-  d+=`9\n$EXTMIN\n10\n${(ctrUTM.easting-500).toFixed(2)}\n20\n${(ctrUTM.northing-500).toFixed(2)}\n30\n0.0\n`;
-  d+=`9\n$EXTMAX\n10\n${(ctrUTM.easting+500).toFixed(2)}\n20\n${(ctrUTM.northing+500).toFixed(2)}\n30\n0.0\n`;
+  d+=`9\n$EXTMIN\n10\n0.0\n20\n${(-_dxfH).toFixed(2)}\n30\n0.0\n`;
+  d+=`9\n$EXTMAX\n10\n${_dxfW.toFixed(2)}\n20\n0.0\n30\n0.0\n`;
   d+='9\n$HANDSEED\n5\nFFFF\n';
   d+='0\nENDSEC\n';
 
@@ -3289,9 +3290,9 @@ async function exportDXF(){
   // VPORT
   d+='0\nTABLE\n2\nVPORT\n5\n80\n330\n0\n100\nAcDbSymbolTable\n70\n1\n';
   d+=`0\nVPORT\n5\n81\n330\n80\n100\nAcDbSymbolTableRecord\n100\nAcDbViewportTableRecord\n2\n*Active\n70\n0\n`;
-  d+=`10\n0.0\n20\n0.0\n11\n1.0\n21\n1.0\n12\n${ctrUTM.easting.toFixed(2)}\n22\n${ctrUTM.northing.toFixed(2)}\n`;
+  d+=`10\n0.0\n20\n0.0\n11\n1.0\n21\n1.0\n12\n${(_dxfW/2).toFixed(2)}\n22\n${(-_dxfH/2).toFixed(2)}\n`;
   d+=`13\n0.0\n23\n0.0\n14\n1.0\n24\n1.0\n15\n0.0\n25\n0.0\n16\n0.0\n26\n0.0\n36\n1.0\n`;
-  d+=`17\n0.0\n27\n0.0\n37\n0.0\n40\n2000.0\n41\n1.0\n42\n50.0\n43\n0.0\n44\n4.0\n50\n0.0\n51\n0.0\n71\n0\n72\n100\n73\n1\n74\n3\n75\n0\n76\n1\n77\n0\n78\n0\n`;
+  d+=`17\n0.0\n27\n0.0\n37\n0.0\n40\n${(_dxfH*1.1).toFixed(2)}\n41\n1.0\n42\n50.0\n43\n0.0\n44\n4.0\n50\n0.0\n51\n0.0\n71\n0\n72\n100\n73\n1\n74\n3\n75\n0\n76\n1\n77\n0\n78\n0\n`;
   d+='0\nENDTAB\n';
   // LTYPE
   d+='0\nTABLE\n2\nLTYPE\n5\n82\n330\n0\n100\nAcDbSymbolTable\n70\n1\n';
@@ -3346,7 +3347,8 @@ async function exportDXF(){
   // GEOREF annotation text — with R2000 handle + subclass markers
   const lbl=`CRS: WGS84 UTM Zone ${ctrUTM.zone}${ns}  EPSG:${epsg}  Ref:${ctrLL.lat.toFixed(6)},${ctrLL.lng.toFixed(6)}`;
   {const th=(_geoHandle++).toString(16).toUpperCase();
-  d+=`0\nTEXT\n5\n${th}\n330\n98\n100\nAcDbEntity\n8\nGEOREF\n100\nAcDbText\n10\n${ctrUTM.easting.toFixed(2)}\n20\n${(ctrUTM.northing+40).toFixed(2)}\n30\n0.0\n40\n5.0\n1\n${lbl}\n100\nAcDbText\n`;}
+  // Text placed 10 m above top-left corner (canvas-relative coords)
+  d+=`0\nTEXT\n5\n${th}\n330\n98\n100\nAcDbEntity\n8\nGEOREF\n100\nAcDbText\n10\n0.0\n20\n10.0\n30\n0.0\n40\n5.0\n1\n${lbl}\n100\nAcDbText\n`;}
   d+='0\nENDSEC\n';
 
   // OBJECTS — minimal root dictionary (no image proxy objects)

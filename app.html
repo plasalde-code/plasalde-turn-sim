@@ -3275,8 +3275,9 @@ async function exportDXF(){
   const epsg=ctrUTM.northern?32600+ctrUTM.zone:32700+ctrUTM.zone;
   const ns=ctrUTM.northern?'N':'S';
   d+='0\nSECTION\n2\nHEADER\n';
-  d+='9\n$ACADVER\n1\nAC1015\n';   // R2000 — minimum version supporting IMAGE entity
+  d+='9\n$ACADVER\n1\nAC1015\n';   // R2000
   d+='9\n$INSUNITS\n70\n6\n';      // 6 = metres
+  d+='9\n$PSTYLEMODE\n70\n1\n';    // 1 = color-dependent plot styles (no plot-style objects needed)
   d+=`9\n$EXTMIN\n10\n0.0\n20\n${(-_dxfH).toFixed(2)}\n30\n0.0\n`;
   d+=`9\n$EXTMAX\n10\n${_dxfW.toFixed(2)}\n20\n0.0\n30\n0.0\n`;
   d+='9\n$HANDSEED\n5\nFFFF\n';
@@ -3301,7 +3302,7 @@ async function exportDXF(){
   // LAYER
   d+=`0\nTABLE\n2\nLAYER\n5\n84\n330\n0\n100\nAcDbSymbolTable\n70\n${ld.length}\n`;
   ld.forEach(([n,c],i)=>{
-    d+=`0\nLAYER\n5\n${(0x85+i).toString(16).toUpperCase()}\n330\n84\n100\nAcDbSymbolTableRecord\n100\nAcDbLayerTableRecord\n2\n${n}\n70\n0\n62\n${c}\n6\nCONTINUOUS\n`;
+    d+=`0\nLAYER\n5\n${(0x85+i).toString(16).toUpperCase()}\n330\n84\n100\nAcDbSymbolTableRecord\n100\nAcDbLayerTableRecord\n2\n${n}\n70\n0\n62\n${c}\n6\nCONTINUOUS\n390\nNormal\n`;
   });
   d+='0\nENDTAB\n';
   // STYLE

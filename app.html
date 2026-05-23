@@ -3070,10 +3070,12 @@ async function exportDXF(){
   }
 
   // ── Arc / Line path fitting ───────────────────────────────────────────
-  // Direction-based segmentation: analyses curvature (dθ/ds) along the path.
-  // Straight sections (κ < threshold) → one LINE entity end-to-end.
-  // Curved sections (κ ≥ threshold)   → one ARC entity (center/radius/angles).
-  // This correctly collapses hand-drawn wobble into single clean primitives.
+  // Direction-based curvature analysis classifies the path into straight and
+  // arc sections. Output uses LWPOLYLINE with DXF bulge values (group 42):
+  //   bulge = 0        → straight segment to next vertex
+  //   bulge = ±tan(θ/4) → arc to next vertex, sign = CCW(+) / CW(-)
+  // This gives one clean polyline entity per path with proper arc geometry,
+  // fully compatible with AutoCAD and NanoCAD.
 
   // Circle through 3 non-collinear points. Returns {cx,cy,r} or null.
   function circle3pt(a,b,c){
@@ -3085,13 +3087,12 @@ async function exportDXF(){
     return{cx:a.x+ux,cy:a.y+uy,r:Math.sqrt(ux*ux+uy*uy)};
   }
 
-  // Convert dense point array (already in output coords) to LINE/ARC segments.
+  // Analyse curvature and return segments: {t:'L',p1,p2} or {t:'A',p1,p2,ccw,a1deg,a2deg}
   function pathToSegs(pts){
     if(!pts||pts.length<2) return[];
     const n=pts.length;
     if(n===2) return[{t:'L',p1:pts[0],p2:pts[1]}];
 
-    // Chord directions and cumulative arc length
     const s=[0],dir=[];
     for(let i=0;i<n-1;i++){
       const dx=pts[i+1].x-pts[i].x,dy=pts[i+1].y-pts[i].y;
@@ -3101,15 +3102,12 @@ async function exportDXF(){
     const totalLen=s[n-1];
     if(totalLen<1e-10) return[{t:'L',p1:pts[0],p2:pts[n-1]}];
 
-    // Unwrap chord directions to avoid ±π wrapping
     const ud=[dir[0]];
     for(let i=1;i<dir.length;i++){
       let d=dir[i]-ud[i-1];
       while(d>Math.PI)d-=2*Math.PI; while(d<-Math.PI)d+=2*Math.PI;
       ud.push(ud[i-1]+d);
     }
-
-    // Smooth directions over ~1 m of path to suppress hand-drawing noise
     const hw=Math.max(2,Math.min(12,Math.round(n/totalLen)));
     const sm=v=>v.map((_,i)=>{
       let sum=0,cnt=0;
@@ -3117,23 +3115,15 @@ async function exportDXF(){
       return sum/cnt;
     });
     const sd=sm(ud);
-
-    // Curvature κ = dθ/ds at each interior chord
     const k=ud.map((_,i)=>{
       if(i===0||i===ud.length-1) return 0;
       const ds=s[i+2]-s[i];
       return ds>1e-10?(sd[i+1]-sd[i-1])/ds:0;
     });
-    const sk=sm(k); // smooth kappa once more
-
-    // κ threshold: 0.02 rad/m → anything with radius > 50 m treated as straight
-    const kThr=0.02;
-
-    // Classify each point index as straight (true) or arc (false)
-    // Point i uses kappa of its nearest chord
+    const sk=sm(k);
+    const kThr=0.02; // 0.02 rad/m → radius > 50 m treated as straight
     const isSt=pts.map((_,i)=>Math.abs(sk[Math.min(i,sk.length-1)])<kThr);
 
-    // Group consecutive same-type points → one segment each
     const segs=[];
     let i=0;
     while(i<n-1){
@@ -3141,18 +3131,16 @@ async function exportDXF(){
       let j=i+1;
       while(j<n-1&&isSt[j]===type) j++;
       if(type){
-        // Straight → single LINE from first to last point of group
         segs.push({t:'L',p1:pts[i],p2:pts[j]});
       } else {
-        // Curved → single ARC fitted through start / mid / end of group
         const mid=Math.floor((i+j)/2);
         const c=circle3pt(pts[i],pts[mid],pts[j]);
-        if(c&&c.r<5e4){
+        if(c&&c.r>0.01&&c.r<5e4&&!isNaN(c.cx)){
           const v1x=pts[Math.min(i+1,n-1)].x-pts[i].x,v1y=pts[Math.min(i+1,n-1)].y-pts[i].y;
           const ccw=(pts[i].x-c.cx)*v1y-(pts[i].y-c.cy)*v1x>0;
           const a1=Math.atan2(pts[i].y-c.cy,pts[i].x-c.cx)*180/Math.PI;
           const a2=Math.atan2(pts[j].y-c.cy,pts[j].x-c.cx)*180/Math.PI;
-          segs.push({t:'A',cx:c.cx,cy:c.cy,r:c.r,a1,a2,ccw});
+          segs.push({t:'A',p1:pts[i],p2:pts[j],ccw,a1,a2});
         } else {
           segs.push({t:'L',p1:pts[i],p2:pts[j]});
         }
@@ -3162,52 +3150,57 @@ async function exportDXF(){
     return segs;
   }
 
-  let _geoHandle=0x1000; // start well above reserved handles (A0=IMAGE, B0-B3=OBJECTS)
+  // Compute DXF bulge for an arc segment. bulge=tan(θ/4), +CCW / -CW.
+  function arcBulge(seg){
+    let theta=seg.ccw?((seg.a2-seg.a1)%360+360)%360:((seg.a1-seg.a2)%360+360)%360;
+    if(theta<1e-4) theta=360;
+    const b=(seg.ccw?1:-1)*Math.tan(theta*Math.PI/720);
+    return isNaN(b)||!isFinite(b)?0:b;
+  }
 
-  // Emit R2000 LINE/ARC entities (geo mode).
+  let _geoHandle=0x1000; // well above all reserved handles (A0=IMAGE, B0-B3=OBJECTS)
+
+  // Emit one R2000 LWPOLYLINE with bulge-encoded arcs (geo mode).
   function emitGeo(rawPts,layer){
     if(!rawPts||rawPts.length<2) return'';
     const segs=pathToSegs(rawPts.map(p=>toXY(p)));
-    let s='';
+    if(!segs.length) return'';
+    // Build vertex list: each seg contributes its start point + bulge
+    const verts=[];
     for(const seg of segs){
-      const h=(_geoHandle++).toString(16).toUpperCase();
-      if(seg.t==='L'){
-        if(isNaN(seg.p1.x)||isNaN(seg.p2.x)) continue;
-        s+=`0\nLINE\n5\n${h}\n330\n98\n100\nAcDbEntity\n8\n${layer}\n100\nAcDbLine\n`;
-        s+=`10\n${seg.p1.x.toFixed(4)}\n20\n${seg.p1.y.toFixed(4)}\n30\n0.0\n`;
-        s+=`11\n${seg.p2.x.toFixed(4)}\n21\n${seg.p2.y.toFixed(4)}\n31\n0.0\n`;
-      } else {
-        if(isNaN(seg.cx)||isNaN(seg.r)||seg.r<0.01) continue;
-        // DXF ARC is always CCW: swap start/end angles for CW arcs
-        const sa=seg.ccw?seg.a1:seg.a2,ea=seg.ccw?seg.a2:seg.a1;
-        s+=`0\nARC\n5\n${h}\n330\n98\n100\nAcDbEntity\n8\n${layer}\n100\nAcDbCircle\n`;
-        s+=`10\n${seg.cx.toFixed(4)}\n20\n${seg.cy.toFixed(4)}\n30\n0.0\n40\n${seg.r.toFixed(4)}\n`;
-        s+=`100\nAcDbArc\n50\n${sa.toFixed(6)}\n51\n${ea.toFixed(6)}\n`;
-      }
+      const b=seg.t==='A'?arcBulge(seg):0;
+      verts.push({x:seg.p1.x,y:seg.p1.y,b});
+    }
+    const last=segs[segs.length-1];
+    verts.push({x:last.p2.x,y:last.p2.y,b:0});
+    const h=(_geoHandle++).toString(16).toUpperCase();
+    let s=`0\nLWPOLYLINE\n5\n${h}\n330\n98\n100\nAcDbEntity\n8\n${layer}\n100\nAcDbPolyline\n`;
+    s+=`90\n${verts.length}\n70\n0\n`;
+    for(const v of verts){
+      s+=`10\n${v.x.toFixed(4)}\n20\n${v.y.toFixed(4)}\n`;
+      if(Math.abs(v.b)>1e-10) s+=`42\n${v.b.toFixed(8)}\n`;
     }
     return s;
   }
 
-  // Emit R12 LINE/ARC entities (non-geo mode).
+  // Emit one R12 POLYLINE/VERTEX/SEQEND with bulge-encoded arcs (non-geo mode).
   function emitR12(rawPts,layer){
     if(!rawPts||rawPts.length<2) return'';
     const segs=pathToSegs(rawPts.map(p=>toXY(p)));
-    let s='';
+    if(!segs.length) return'';
+    const verts=[];
     for(const seg of segs){
-      if(seg.t==='L'){
-        if(isNaN(seg.p1.x)||isNaN(seg.p2.x)) continue;
-        s+=`0\nLINE\n8\n${layer}\n`;
-        s+=`10\n${seg.p1.x.toFixed(4)}\n20\n${seg.p1.y.toFixed(4)}\n30\n0.0\n`;
-        s+=`11\n${seg.p2.x.toFixed(4)}\n21\n${seg.p2.y.toFixed(4)}\n31\n0.0\n`;
-      } else {
-        if(isNaN(seg.cx)||isNaN(seg.r)||seg.r<0.01) continue;
-        const sa=seg.ccw?seg.a1:seg.a2,ea=seg.ccw?seg.a2:seg.a1;
-        s+=`0\nARC\n8\n${layer}\n`;
-        s+=`10\n${seg.cx.toFixed(4)}\n20\n${seg.cy.toFixed(4)}\n30\n0.0\n`;
-        s+=`40\n${seg.r.toFixed(4)}\n50\n${sa.toFixed(6)}\n51\n${ea.toFixed(6)}\n`;
-      }
+      const b=seg.t==='A'?arcBulge(seg):0;
+      verts.push({x:seg.p1.x,y:seg.p1.y,b});
     }
-    return s;
+    const last=segs[segs.length-1];
+    verts.push({x:last.p2.x,y:last.p2.y,b:0});
+    let s=`0\nPOLYLINE\n8\n${layer}\n66\n1\n10\n0.0\n20\n0.0\n30\n0.0\n70\n0\n`;
+    for(const v of verts){
+      s+=`0\nVERTEX\n8\n${layer}\n10\n${v.x.toFixed(4)}\n20\n${v.y.toFixed(4)}\n30\n0.0\n`;
+      if(Math.abs(v.b)>1e-10) s+=`42\n${v.b.toFixed(8)}\n`;
+    }
+    return s+`0\nSEQEND\n8\n${layer}\n`;
   }
 
   const stem=`turn-${S.vehicle.code}-${Date.now()}`;

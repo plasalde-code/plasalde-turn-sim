@@ -3317,8 +3317,8 @@ async function exportDXF(){
   d+='0\nTABLE\n2\nAPPID\n5\n93\n330\n0\n100\nAcDbSymbolTable\n70\n1\n';
   d+='0\nAPPID\n5\n94\n330\n93\n100\nAcDbSymbolTableRecord\n100\nAcDbRegAppTableRecord\n2\nACAD\n70\n0\n';
   d+='0\nENDTAB\n';
-  // DIMSTYLE
-  d+='0\nTABLE\n2\nDIMSTYLE\n5\n95\n330\n0\n100\nAcDbSymbolTable\n70\n1\n';
+  // DIMSTYLE — R2000 requires an extra AcDbDimStyleTable subclass marker on the TABLE header
+  d+='0\nTABLE\n2\nDIMSTYLE\n5\n95\n330\n0\n100\nAcDbSymbolTable\n70\n1\n100\nAcDbDimStyleTable\n71\n0\n';
   d+='0\nDIMSTYLE\n5\n96\n330\n95\n100\nAcDbSymbolTableRecord\n100\nAcDbDimStyleTableRecord\n2\nStandard\n70\n0\n';
   d+='0\nENDTAB\n';
   // BLOCK_RECORD

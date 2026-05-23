@@ -3177,7 +3177,7 @@ async function exportDXF(){
     const last=segs[segs.length-1];
     verts.push({x:last.p2.x,y:last.p2.y,b:0});
     const h=(_geoHandle++).toString(16).toUpperCase();
-    let s=`0\nLWPOLYLINE\n5\n${h}\n330\n98\n100\nAcDbEntity\n8\n${layer}\n100\nAcDbPolyline\n`;
+    let s=`0\nLWPOLYLINE\n5\n${h}\n330\n228\n100\nAcDbEntity\n8\n${layer}\n100\nAcDbPolyline\n`;
     s+=`90\n${verts.length}\n70\n0\n`;
     for(const v of verts){
       s+=`10\n${v.x.toFixed(4)}\n20\n${v.y.toFixed(4)}\n`;
@@ -3298,53 +3298,62 @@ async function exportDXF(){
   d+='0\nENDSEC\n';
 
   // TABLES — full set required for R2000
+  // Handles use 0x200+ range to avoid collision with AutoCAD's internal system handles (0x01–0xFF)
+  // Layout: 200=VPORT tbl 201=*Active  202=LTYPE tbl 203=CONTINUOUS
+  //         204=LAYER tbl 205-21E=layers  21F=STYLE tbl 220=Standard style
+  //         221=VIEW tbl  222=UCS tbl  223=APPID tbl  224=ACAD appid
+  //         225=DIMSTYLE tbl  226=Std dimstyle  227=BLKREC tbl
+  //         228=*Model_Space rec  229=*Paper_Space rec
+  //         22A=*Model_Space blk  22B=endblk  22C=*Paper_Space blk  22D=endblk
+  //         500=root obj dict  501=img dict  502=IMAGEDEF  503=IMAGEDEF_REACTOR
   d+='0\nSECTION\n2\nTABLES\n';
   // VPORT
-  d+='0\nTABLE\n2\nVPORT\n5\n80\n330\n0\n100\nAcDbSymbolTable\n70\n1\n';
-  d+=`0\nVPORT\n5\n81\n330\n80\n100\nAcDbSymbolTableRecord\n100\nAcDbViewportTableRecord\n2\n*Active\n70\n0\n`;
+  d+='0\nTABLE\n2\nVPORT\n5\n200\n330\n0\n100\nAcDbSymbolTable\n70\n1\n';
+  d+=`0\nVPORT\n5\n201\n330\n200\n100\nAcDbSymbolTableRecord\n100\nAcDbViewportTableRecord\n2\n*Active\n70\n0\n`;
   d+=`10\n0.0\n20\n0.0\n11\n1.0\n21\n1.0\n12\n${ctrUTM.easting.toFixed(2)}\n22\n${ctrUTM.northing.toFixed(2)}\n`;
   d+=`13\n0.0\n23\n0.0\n14\n1.0\n24\n1.0\n15\n0.0\n25\n0.0\n16\n0.0\n26\n0.0\n36\n1.0\n`;
   d+=`17\n0.0\n27\n0.0\n37\n0.0\n40\n${(_dxfH*1.1).toFixed(2)}\n41\n1.0\n42\n50.0\n43\n0.0\n44\n4.0\n50\n0.0\n51\n0.0\n71\n0\n72\n100\n73\n1\n74\n3\n75\n0\n76\n1\n77\n0\n78\n0\n`;
   d+='0\nENDTAB\n';
   // LTYPE
-  d+='0\nTABLE\n2\nLTYPE\n5\n82\n330\n0\n100\nAcDbSymbolTable\n70\n1\n';
-  d+='0\nLTYPE\n5\n83\n330\n82\n100\nAcDbSymbolTableRecord\n100\nAcDbLinetypeTableRecord\n2\nCONTINUOUS\n70\n0\n3\nSolid line\n72\n65\n73\n0\n40\n0.0\n';
+  d+='0\nTABLE\n2\nLTYPE\n5\n202\n330\n0\n100\nAcDbSymbolTable\n70\n1\n';
+  d+='0\nLTYPE\n5\n203\n330\n202\n100\nAcDbSymbolTableRecord\n100\nAcDbLinetypeTableRecord\n2\nCONTINUOUS\n70\n0\n3\nSolid line\n72\n65\n73\n0\n40\n0.0\n';
   d+='0\nENDTAB\n';
-  // LAYER
-  d+=`0\nTABLE\n2\nLAYER\n5\n84\n330\n0\n100\nAcDbSymbolTable\n70\n${ld.length}\n`;
+  // LAYER (includes required layer "0")
+  d+=`0\nTABLE\n2\nLAYER\n5\n204\n330\n0\n100\nAcDbSymbolTable\n70\n${ld.length+1}\n`;
+  d+='0\nLAYER\n5\n205\n330\n204\n100\nAcDbSymbolTableRecord\n100\nAcDbLayerTableRecord\n2\n0\n70\n0\n62\n7\n6\nCONTINUOUS\n390\nNormal\n';
   ld.forEach(([n,c],i)=>{
-    d+=`0\nLAYER\n5\n${(0x85+i).toString(16).toUpperCase()}\n330\n84\n100\nAcDbSymbolTableRecord\n100\nAcDbLayerTableRecord\n2\n${n}\n70\n0\n62\n${c}\n6\nCONTINUOUS\n390\nNormal\n`;
+    d+=`0\nLAYER\n5\n${(0x206+i).toString(16).toUpperCase()}\n330\n204\n100\nAcDbSymbolTableRecord\n100\nAcDbLayerTableRecord\n2\n${n}\n70\n0\n62\n${c}\n6\nCONTINUOUS\n390\nNormal\n`;
   });
   d+='0\nENDTAB\n';
   // STYLE
-  d+='0\nTABLE\n2\nSTYLE\n5\n8F\n330\n0\n100\nAcDbSymbolTable\n70\n1\n';
-  d+='0\nSTYLE\n5\n90\n330\n8F\n100\nAcDbSymbolTableRecord\n100\nAcDbTextStyleTableRecord\n2\nStandard\n70\n0\n40\n0.0\n41\n1.0\n50\n0.0\n71\n0\n42\n2.5\n3\ntxt\n4\n\n';
+  d+='0\nTABLE\n2\nSTYLE\n5\n21F\n330\n0\n100\nAcDbSymbolTable\n70\n1\n';
+  d+='0\nSTYLE\n5\n220\n330\n21F\n100\nAcDbSymbolTableRecord\n100\nAcDbTextStyleTableRecord\n2\nStandard\n70\n0\n40\n0.0\n41\n1.0\n50\n0.0\n71\n0\n42\n2.5\n3\ntxt\n4\n\n';
   d+='0\nENDTAB\n';
   // VIEW (empty)
-  d+='0\nTABLE\n2\nVIEW\n5\n91\n330\n0\n100\nAcDbSymbolTable\n70\n0\n0\nENDTAB\n';
+  d+='0\nTABLE\n2\nVIEW\n5\n221\n330\n0\n100\nAcDbSymbolTable\n70\n0\n0\nENDTAB\n';
   // UCS (empty)
-  d+='0\nTABLE\n2\nUCS\n5\n92\n330\n0\n100\nAcDbSymbolTable\n70\n0\n0\nENDTAB\n';
+  d+='0\nTABLE\n2\nUCS\n5\n222\n330\n0\n100\nAcDbSymbolTable\n70\n0\n0\nENDTAB\n';
   // APPID
-  d+='0\nTABLE\n2\nAPPID\n5\n93\n330\n0\n100\nAcDbSymbolTable\n70\n1\n';
-  d+='0\nAPPID\n5\n94\n330\n93\n100\nAcDbSymbolTableRecord\n100\nAcDbRegAppTableRecord\n2\nACAD\n70\n0\n';
+  d+='0\nTABLE\n2\nAPPID\n5\n223\n330\n0\n100\nAcDbSymbolTable\n70\n1\n';
+  d+='0\nAPPID\n5\n224\n330\n223\n100\nAcDbSymbolTableRecord\n100\nAcDbRegAppTableRecord\n2\nACAD\n70\n0\n';
   d+='0\nENDTAB\n';
-  // DIMSTYLE — R2000 requires an extra AcDbDimStyleTable subclass marker on the TABLE header
-  d+='0\nTABLE\n2\nDIMSTYLE\n5\n95\n330\n0\n100\nAcDbSymbolTable\n70\n1\n100\nAcDbDimStyleTable\n71\n0\n';
-  d+='0\nDIMSTYLE\n5\n96\n330\n95\n100\nAcDbSymbolTableRecord\n100\nAcDbDimStyleTableRecord\n2\nStandard\n70\n0\n';
+  // DIMSTYLE — AcDbDimStyleTable subclass required by R2000
+  d+='0\nTABLE\n2\nDIMSTYLE\n5\n225\n330\n0\n100\nAcDbSymbolTable\n70\n1\n100\nAcDbDimStyleTable\n71\n1\n';
+  d+='0\nDIMSTYLE\n5\n226\n330\n225\n100\nAcDbSymbolTableRecord\n100\nAcDbDimStyleTableRecord\n2\nStandard\n70\n0\n';
   d+='0\nENDTAB\n';
   // BLOCK_RECORD
-  d+='0\nTABLE\n2\nBLOCK_RECORD\n5\n97\n330\n0\n100\nAcDbSymbolTable\n70\n2\n';
-  d+='0\nBLOCK_RECORD\n5\n98\n330\n97\n100\nAcDbSymbolTableRecord\n100\nAcDbBlockTableRecord\n2\n*Model_Space\n';
-  d+='0\nBLOCK_RECORD\n5\n99\n330\n97\n100\nAcDbSymbolTableRecord\n100\nAcDbBlockTableRecord\n2\n*Paper_Space\n';
+  d+='0\nTABLE\n2\nBLOCK_RECORD\n5\n227\n330\n0\n100\nAcDbSymbolTable\n70\n2\n';
+  d+='0\nBLOCK_RECORD\n5\n228\n330\n227\n100\nAcDbSymbolTableRecord\n100\nAcDbBlockTableRecord\n2\n*Model_Space\n';
+  d+='0\nBLOCK_RECORD\n5\n229\n330\n227\n100\nAcDbSymbolTableRecord\n100\nAcDbBlockTableRecord\n2\n*Paper_Space\n';
   d+='0\nENDTAB\n';
   d+='0\nENDSEC\n';
 
   // BLOCKS — required even if empty
   d+='0\nSECTION\n2\nBLOCKS\n';
-  d+='0\nBLOCK\n5\n9A\n330\n98\n100\nAcDbEntity\n8\n0\n100\nAcDbBlockBegin\n2\n*Model_Space\n70\n0\n10\n0.0\n20\n0.0\n30\n0.0\n3\n*Model_Space\n1\n\n';
-  d+='0\nENDBLK\n5\n9B\n330\n98\n100\nAcDbEntity\n8\n0\n100\nAcDbBlockEnd\n';
-  d+='0\nBLOCK\n5\n9C\n330\n99\n100\nAcDbEntity\n8\n0\n100\nAcDbBlockBegin\n2\n*Paper_Space\n70\n0\n10\n0.0\n20\n0.0\n30\n0.0\n3\n*Paper_Space\n1\n\n';
-  d+='0\nENDBLK\n5\n9D\n330\n99\n100\nAcDbEntity\n8\n0\n100\nAcDbBlockEnd\n';
+  d+='0\nBLOCK\n5\n22A\n330\n228\n100\nAcDbEntity\n8\n0\n100\nAcDbBlockBegin\n2\n*Model_Space\n70\n0\n10\n0.0\n20\n0.0\n30\n0.0\n3\n*Model_Space\n1\n\n';
+  d+='0\nENDBLK\n5\n22B\n330\n228\n100\nAcDbEntity\n8\n0\n100\nAcDbBlockEnd\n';
+  d+='0\nBLOCK\n5\n22C\n330\n229\n100\nAcDbEntity\n8\n0\n100\nAcDbBlockBegin\n2\n*Paper_Space\n70\n0\n10\n0.0\n20\n0.0\n30\n0.0\n3\n*Paper_Space\n1\n\n';
+  d+='0\nENDBLK\n5\n22D\n330\n229\n100\nAcDbEntity\n8\n0\n100\nAcDbBlockEnd\n';
   d+='0\nENDSEC\n';
 
   // ENTITIES
@@ -3359,33 +3368,29 @@ async function exportDXF(){
   // GEOREF annotation text — with R2000 handle + subclass markers
   const lbl=`CRS: WGS84 UTM Zone ${ctrUTM.zone}${ns}  EPSG:${epsg}  Ref:${ctrLL.lat.toFixed(6)},${ctrLL.lng.toFixed(6)}`;
   {const th=(_geoHandle++).toString(16).toUpperCase();
-  d+=`0\nTEXT\n5\n${th}\n330\n98\n100\nAcDbEntity\n8\nGEOREF\n100\nAcDbText\n10\n${(ctrUTM.easting-_dxfW/2).toFixed(2)}\n20\n${(ctrUTM.northing+_dxfH/2+10).toFixed(2)}\n30\n0.0\n40\n5.0\n1\n${lbl}\n100\nAcDbText\n`;}
+  d+=`0\nTEXT\n5\n${th}\n330\n228\n100\nAcDbEntity\n8\nGEOREF\n100\nAcDbText\n10\n${(ctrUTM.easting-_dxfW/2).toFixed(2)}\n20\n${(ctrUTM.northing+_dxfH/2+10).toFixed(2)}\n30\n0.0\n40\n5.0\n1\n${lbl}\n100\nAcDbText\n`;}
 
-  // IMAGE entity — aerial raster background (references IMAGEDEF handle B2)
+  // IMAGE entity — aerial raster background (references IMAGEDEF handle 502)
   if(mapCanvas){
-    d+=`0\nIMAGE\n5\n${imgEntityHandle}\n330\n98\n100\nAcDbEntity\n8\nAERIAL\n`;
+    d+=`0\nIMAGE\n5\n${imgEntityHandle}\n330\n228\n100\nAcDbEntity\n8\nAERIAL\n`;
     d+=`100\nAcDbRasterImage\n`;
-    d+=`10\n${imgInsX.toFixed(4)}\n20\n${imgInsY.toFixed(4)}\n30\n0.0\n`;   // insertion = NW corner
-    d+=`11\n${imgUX.toFixed(10)}\n21\n${imgUY.toFixed(10)}\n31\n0.0\n`;     // U vector (rightward, m/px)
-    d+=`12\n${imgVX.toFixed(10)}\n22\n${imgVY.toFixed(10)}\n32\n0.0\n`;     // V vector (downward, m/px)
-    d+=`13\n${imgW}\n23\n${imgH}\n`;                                          // size in pixels
-    d+=`340\nB2\n70\n7\n280\n0\n281\n50\n282\n50\n283\n0\n360\nB3\n`;       // IMAGEDEF ref, display flags
+    d+=`10\n${imgInsX.toFixed(4)}\n20\n${imgInsY.toFixed(4)}\n30\n0.0\n`;
+    d+=`11\n${imgUX.toFixed(10)}\n21\n${imgUY.toFixed(10)}\n31\n0.0\n`;
+    d+=`12\n${imgVX.toFixed(10)}\n22\n${imgVY.toFixed(10)}\n32\n0.0\n`;
+    d+=`13\n${imgW}\n23\n${imgH}\n`;
+    d+=`340\n502\n70\n7\n280\n0\n281\n50\n282\n50\n283\n0\n360\n503\n`;
   }
   d+='0\nENDSEC\n';
 
   // OBJECTS — root dictionary + image support objects
   d+='0\nSECTION\n2\nOBJECTS\n';
   if(mapCanvas){
-    // Root dict → image dict
-    d+='0\nDICTIONARY\n5\nB0\n330\n0\n100\nAcDbDictionary\n281\n1\n3\nACAD_IMAGE_DICT\n350\nB1\n';
-    // Image dict → IMAGEDEF
-    d+='0\nDICTIONARY\n5\nB1\n330\nB0\n100\nAcDbDictionary\n281\n1\n3\naerial\n350\nB2\n';
-    // IMAGEDEF — points to the PNG file (same folder as the DXF inside the ZIP)
-    d+=`0\nIMAGEDEF\n5\nB2\n330\nB1\n100\nAcDbRasterImageDef\n1\naerial.png\n10\n${imgW}\n20\n${imgH}\n11\n1.0\n21\n1.0\n280\n1\n281\n5\n`;
-    // IMAGEDEF_REACTOR — back-reference to the IMAGE entity
-    d+=`0\nIMAGEDEF_REACTOR\n5\nB3\n330\n${imgEntityHandle}\n100\nAcDbRasterImageDefReactor\n90\n2\n`;
+    d+='0\nDICTIONARY\n5\n500\n330\n0\n100\nAcDbDictionary\n281\n1\n3\nACAD_IMAGE_DICT\n350\n501\n';
+    d+='0\nDICTIONARY\n5\n501\n330\n500\n100\nAcDbDictionary\n281\n1\n3\naerial\n350\n502\n';
+    d+=`0\nIMAGEDEF\n5\n502\n330\n501\n100\nAcDbRasterImageDef\n1\naerial.png\n10\n${imgW}\n20\n${imgH}\n11\n1.0\n21\n1.0\n280\n1\n281\n5\n`;
+    d+=`0\nIMAGEDEF_REACTOR\n5\n503\n330\n${imgEntityHandle}\n100\nAcDbRasterImageDefReactor\n90\n2\n`;
   } else {
-    d+='0\nDICTIONARY\n5\nB0\n330\n0\n100\nAcDbDictionary\n281\n1\n';
+    d+='0\nDICTIONARY\n5\n500\n330\n0\n100\nAcDbDictionary\n281\n1\n';
   }
   d+='0\nENDSEC\n0\nEOF\n';
 

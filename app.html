@@ -3254,6 +3254,9 @@ async function exportDXF(){
     imgUX=(uNE.easting -uNW.easting)/imgW; imgUY=(uNE.northing-uNW.northing)/imgW; // U: rightward
     imgVX=(uSW.easting -uNW.easting)/imgH; imgVY=(uSW.northing-uNW.northing)/imgH; // V: downward (negative)
   }
+  // Reserve IMAGE entity handle first (before emitGeo increments _geoHandle)
+  // so IMAGEDEF_REACTOR can back-reference it.
+  const imgEntityHandle=mapCanvas?(_geoHandle++).toString(16).toUpperCase():null;
 
   // ── Layer definitions (geo mode) ────────────────────────────────────
   const hasTrailer=tracks.tL&&tracks.tL.length>0;
@@ -3285,8 +3288,14 @@ async function exportDXF(){
   d+='9\n$HANDSEED\n5\nFFFF\n';
   d+='0\nENDSEC\n';
 
-  // CLASSES — empty (no proxy objects; image attached separately via .pgw)
-  d+='0\nSECTION\n2\nCLASSES\n0\nENDSEC\n';
+  // CLASSES — register proxy classes needed for IMAGE entity
+  d+='0\nSECTION\n2\nCLASSES\n';
+  if(mapCanvas){
+    d+=`0\nCLASS\n1\nIMAGE\n2\nAcDbRasterImage\n3\n${arc}\n90\n0\n91\n1\n`;
+    d+=`0\nCLASS\n1\nIMAGEDEF\n2\nAcDbRasterImageDef\n3\n${arc}\n90\n0\n91\n0\n`;
+    d+=`0\nCLASS\n1\nIMAGEDEF_REACTOR\n2\nAcDbRasterImageDefReactor\n3\n${arc}\n90\n1\n91\n1\n`;
+  }
+  d+='0\nENDSEC\n';
 
   // TABLES — full set required for R2000
   d+='0\nSECTION\n2\nTABLES\n';
@@ -3351,11 +3360,33 @@ async function exportDXF(){
   const lbl=`CRS: WGS84 UTM Zone ${ctrUTM.zone}${ns}  EPSG:${epsg}  Ref:${ctrLL.lat.toFixed(6)},${ctrLL.lng.toFixed(6)}`;
   {const th=(_geoHandle++).toString(16).toUpperCase();
   d+=`0\nTEXT\n5\n${th}\n330\n98\n100\nAcDbEntity\n8\nGEOREF\n100\nAcDbText\n10\n${(ctrUTM.easting-_dxfW/2).toFixed(2)}\n20\n${(ctrUTM.northing+_dxfH/2+10).toFixed(2)}\n30\n0.0\n40\n5.0\n1\n${lbl}\n100\nAcDbText\n`;}
+
+  // IMAGE entity — aerial raster background (references IMAGEDEF handle B2)
+  if(mapCanvas){
+    d+=`0\nIMAGE\n5\n${imgEntityHandle}\n330\n98\n100\nAcDbEntity\n8\nAERIAL\n`;
+    d+=`100\nAcDbRasterImage\n`;
+    d+=`10\n${imgInsX.toFixed(4)}\n20\n${imgInsY.toFixed(4)}\n30\n0.0\n`;   // insertion = NW corner
+    d+=`11\n${imgUX.toFixed(10)}\n21\n${imgUY.toFixed(10)}\n31\n0.0\n`;     // U vector (rightward, m/px)
+    d+=`12\n${imgVX.toFixed(10)}\n22\n${imgVY.toFixed(10)}\n32\n0.0\n`;     // V vector (downward, m/px)
+    d+=`13\n${imgW}\n23\n${imgH}\n`;                                          // size in pixels
+    d+=`340\nB2\n70\n7\n280\n0\n281\n50\n282\n50\n283\n0\n360\nB3\n`;       // IMAGEDEF ref, display flags
+  }
   d+='0\nENDSEC\n';
 
-  // OBJECTS — minimal root dictionary (no image proxy objects)
+  // OBJECTS — root dictionary + image support objects
   d+='0\nSECTION\n2\nOBJECTS\n';
-  d+='0\nDICTIONARY\n5\nB0\n330\n0\n100\nAcDbDictionary\n281\n1\n';
+  if(mapCanvas){
+    // Root dict → image dict
+    d+='0\nDICTIONARY\n5\nB0\n330\n0\n100\nAcDbDictionary\n281\n1\n3\nACAD_IMAGE_DICT\n350\nB1\n';
+    // Image dict → IMAGEDEF
+    d+='0\nDICTIONARY\n5\nB1\n330\nB0\n100\nAcDbDictionary\n281\n1\n3\naerial\n350\nB2\n';
+    // IMAGEDEF — points to the PNG file (same folder as the DXF inside the ZIP)
+    d+=`0\nIMAGEDEF\n5\nB2\n330\nB1\n100\nAcDbRasterImageDef\n1\naerial.png\n10\n${imgW}\n20\n${imgH}\n11\n1.0\n21\n1.0\n280\n1\n281\n5\n`;
+    // IMAGEDEF_REACTOR — back-reference to the IMAGE entity
+    d+=`0\nIMAGEDEF_REACTOR\n5\nB3\n330\n${imgEntityHandle}\n100\nAcDbRasterImageDefReactor\n90\n2\n`;
+  } else {
+    d+='0\nDICTIONARY\n5\nB0\n330\n0\n100\nAcDbDictionary\n281\n1\n';
+  }
   d+='0\nENDSEC\n0\nEOF\n';
 
   // ── Bundle into ZIP ──────────────────────────────────────────────────

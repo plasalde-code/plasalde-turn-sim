@@ -3281,14 +3281,8 @@ async function exportDXF(){
   d+='9\n$HANDSEED\n5\nFFFF\n';
   d+='0\nENDSEC\n';
 
-  // CLASSES — required for IMAGE/IMAGEDEF/IMAGEDEF_REACTOR proxy objects
-  d+='0\nSECTION\n2\nCLASSES\n';
-  if(mapCanvas){
-    d+=`0\nCLASS\n1\nIMAGE\n2\nAcDbRasterImage\n3\n${arc}\n90\n0\n91\n1\n280\n0\n281\n1\n`;
-    d+=`0\nCLASS\n1\nIMAGEDEF\n2\nAcDbRasterImageDef\n3\n${arc}\n90\n0\n91\n1\n280\n0\n281\n0\n`;
-    d+=`0\nCLASS\n1\nIMAGEDEF_REACTOR\n2\nAcDbRasterImageDefReactor\n3\n${arc}\n90\n1\n91\n1\n280\n0\n281\n0\n`;
-  }
-  d+='0\nENDSEC\n';
+  // CLASSES — empty (no proxy objects; image attached separately via .pgw)
+  d+='0\nSECTION\n2\nCLASSES\n0\nENDSEC\n';
 
   // TABLES — full set required for R2000
   d+='0\nSECTION\n2\nTABLES\n';
@@ -3343,17 +3337,6 @@ async function exportDXF(){
   // ENTITIES
   d+='0\nSECTION\n2\nENTITIES\n';
 
-  // IMAGE entity — positions aerial.png in model space using UTM coordinates.
-  // NanoCAD/AutoCAD search for aerial.png in the same folder as the DXF.
-  if(mapCanvas){
-    d+=`0\nIMAGE\n5\nA0\n330\n98\n100\nAcDbEntity\n8\nAERIAL\n100\nAcDbRasterImage\n`;
-    d+=`10\n${imgInsX.toFixed(4)}\n20\n${imgInsY.toFixed(4)}\n30\n0.0\n`;  // insertion (SW corner, UTM)
-    d+=`11\n${imgUX.toFixed(10)}\n21\n${imgUY.toFixed(10)}\n31\n0.0\n`;    // U vector (m/pixel rightward)
-    d+=`12\n${imgVX.toFixed(10)}\n22\n${imgVY.toFixed(10)}\n32\n0.0\n`;    // V vector (m/pixel upward)
-    d+=`13\n${imgW.toFixed(1)}\n23\n${imgH.toFixed(1)}\n`;                 // image size (pixels)
-    d+=`340\nB2\n70\n7\n280\n0\n281\n50\n282\n50\n283\n0\n360\nB3\n`;      // IMAGEDEF handle + flags
-  }
-
   // Vector paths — LINE/ARC geometry (no overhang, no swept envelope)
   d+=emitGeo(pathPts,'CENTERLINE');
   d+=emitGeo(tracks.fL,'FRONT-WHEEL')+emitGeo(tracks.fR,'FRONT-WHEEL');
@@ -3366,18 +3349,9 @@ async function exportDXF(){
   d+=`0\nTEXT\n5\n${th}\n330\n98\n100\nAcDbEntity\n8\nGEOREF\n100\nAcDbText\n10\n${ctrUTM.easting.toFixed(2)}\n20\n${(ctrUTM.northing+40).toFixed(2)}\n30\n0.0\n40\n5.0\n1\n${lbl}\n100\nAcDbText\n`;}
   d+='0\nENDSEC\n';
 
-  // OBJECTS — root dictionary + IMAGEDEF chain
+  // OBJECTS — minimal root dictionary (no image proxy objects)
   d+='0\nSECTION\n2\nOBJECTS\n';
-  if(mapCanvas){
-    d+='0\nDICTIONARY\n5\nB0\n330\n0\n100\nAcDbDictionary\n281\n1\n3\nACAD_IMAGE_DICT\n350\nB1\n';
-    d+='0\nDICTIONARY\n5\nB1\n330\nB0\n100\nAcDbDictionary\n281\n0\n3\naerial\n350\nB2\n';
-    // IMAGEDEF: defines aerial.png file + pixel dimensions
-    d+=`0\nIMAGEDEF\n5\nB2\n330\nB1\n100\nAcDbRasterImageDef\n90\n0\n1\naerial.png\n10\n${imgW.toFixed(1)}\n20\n${imgH.toFixed(1)}\n11\n0.0000925926\n21\n0.0000925926\n280\n1\n281\n5\n`;
-    // IMAGEDEF_REACTOR: back-pointer from IMAGEDEF to the IMAGE entity
-    d+='0\nIMAGEDEF_REACTOR\n5\nB3\n330\nB2\n100\nAcDbRasterImageDefReactor\n90\n2\n330\nA0\n';
-  } else {
-    d+='0\nDICTIONARY\n5\nB0\n330\n0\n100\nAcDbDictionary\n281\n1\n';
-  }
+  d+='0\nDICTIONARY\n5\nB0\n330\n0\n100\nAcDbDictionary\n281\n1\n';
   d+='0\nENDSEC\n0\nEOF\n';
 
   // ── Bundle into ZIP ──────────────────────────────────────────────────
@@ -3396,9 +3370,9 @@ async function exportDXF(){
     `\nHow to open (NanoCAD / AutoCAD):\n`+
     `  1. Extract ALL files to the same folder\n`+
     `  2. Open ${stem}.dxf from that folder\n`+
-    (mapCanvas?`  3. aerial.png is attached automatically via the IMAGE entity\n`:`  3. No aerial captured (CORS restriction) — assign CRS manually\n`)+
-    `\nTo enable online map tiles (AutoCAD Map 3D only):\n`+
-    `  ADEASSIGNCRDSYS → UTM-${ctrUTM.zone}${ns} (EPSG:${epsg}) → Online Map → Enable`;
+    (mapCanvas?`  3. To attach the aerial image in AutoCAD/NanoCAD:\n     - Command: IMAGEATTACH → select aerial.png → OK\n     - The .pgw world file will georeference it automatically\n`:`  3. No aerial captured\n`)+
+    `\nCoordinate system: UTM Zone ${ctrUTM.zone}${ns} (EPSG:${epsg})\n`+
+    `After opening, type ZE (Zoom Extents) if the drawing appears blank.`;
   zip.file('README.txt',readme);
   const zipBlob=await zip.generateAsync({type:'blob',compression:'DEFLATE'});
   const a=document.createElement('a');

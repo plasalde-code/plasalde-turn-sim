@@ -3166,16 +3166,25 @@ async function exportDXF(){
   // Emit one R2000 LWPOLYLINE with bulge-encoded arcs (geo mode).
   function emitGeo(rawPts,layer){
     if(!rawPts||rawPts.length<2) return'';
-    const segs=pathToSegs(rawPts.map(p=>toXY(p)));
+    // Arc-fitting MUST run in canvas-relative metres (the space it was tuned for).
+    // pathToSegs uses hw=round(n/totalLen); with raw UTM coords totalLen is ~100s of metres
+    // giving a totally different smoothing window vs canvas pixels → wrong geometry.
+    // We fit in canvas space, then re-project each endpoint to UTM for the DXF vertices.
+    const canvasPts=rawPts.map(p=>({x:p.x/effectivePpm,y:-p.y/effectivePpm}));
+    const segs=pathToSegs(canvasPts);
     if(!segs.length) return'';
+    // Convert a canvas-relative point back to DXF output coords (UTM in geo mode)
+    const toDxf=cp=>toXY({x:cp.x*effectivePpm,y:-cp.y*effectivePpm});
     // Build vertex list: each seg contributes its start point + bulge
     const verts=[];
     for(const seg of segs){
       const b=seg.t==='A'?arcBulge(seg):0;
-      verts.push({x:seg.p1.x,y:seg.p1.y,b});
+      const xy=toDxf(seg.p1);
+      verts.push({x:xy.x,y:xy.y,b});
     }
     const last=segs[segs.length-1];
-    verts.push({x:last.p2.x,y:last.p2.y,b:0});
+    const lastXY=toDxf(last.p2);
+    verts.push({x:lastXY.x,y:lastXY.y,b:0});
     const h=(_geoHandle++).toString(16).toUpperCase();
     let s=`0\nLWPOLYLINE\n5\n${h}\n330\n228\n100\nAcDbEntity\n8\n${layer}\n100\nAcDbPolyline\n`;
     s+=`90\n${verts.length}\n70\n0\n`;

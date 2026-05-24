@@ -3161,28 +3161,14 @@ async function exportDXF(){
     return isNaN(b)||!isFinite(b)?0:b;
   }
 
-  // Emit one R12 POLYLINE/VERTEX/SEQEND — arc-fitting in canvas space, UTM output.
+  // Emit one R12 POLYLINE/VERTEX/SEQEND — raw points → exact match with app display.
+  // Each canvas point is converted directly to UTM; no arc-fitting simplification.
   function emitGeoR12(rawPts,layer){
     if(!rawPts||rawPts.length<2) return'';
-    // Fit in canvas-relative metres (pathToSegs was tuned for this space).
-    const canvasPts=rawPts.map(p=>({x:p.x/effectivePpm,y:-p.y/effectivePpm}));
-    const segs=pathToSegs(canvasPts);
-    if(!segs.length) return'';
-    // Convert canvas-relative point → UTM for DXF output
-    const toDxf=cp=>toXY({x:cp.x*effectivePpm,y:-cp.y*effectivePpm});
-    const verts=[];
-    for(const seg of segs){
-      const b=seg.t==='A'?arcBulge(seg):0;
-      const xy=toDxf(seg.p1);
-      verts.push({x:xy.x,y:xy.y,b});
-    }
-    const last=segs[segs.length-1];
-    const lastXY=toDxf(last.p2);
-    verts.push({x:lastXY.x,y:lastXY.y,b:0});
     let s=`0\nPOLYLINE\n8\n${layer}\n66\n1\n10\n0.0\n20\n0.0\n30\n0.0\n70\n0\n`;
-    for(const v of verts){
-      s+=`0\nVERTEX\n8\n${layer}\n10\n${v.x.toFixed(4)}\n20\n${v.y.toFixed(4)}\n30\n0.0\n`;
-      if(Math.abs(v.b)>1e-10) s+=`42\n${v.b.toFixed(8)}\n`;
+    for(const p of rawPts){
+      const xy=toXY(p);
+      s+=`0\nVERTEX\n8\n${layer}\n10\n${xy.x.toFixed(4)}\n20\n${xy.y.toFixed(4)}\n30\n0.0\n`;
     }
     return s+`0\nSEQEND\n8\n${layer}\n`;
   }

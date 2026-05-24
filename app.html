@@ -3056,19 +3056,25 @@ async function exportDXF(){
   const{pathPts,tracks,env,effectivePpm}=data;
 
   const isGeo=S.aerial&&S.leaflet;
-  let toXY,ctrUTM=null,ctrLL=null;
+  const M2FT=3.28084; // metres → feet conversion factor
+  let toXY,ctrUTM=null,ctrLL=null,ctrFt=null;
   if(isGeo){
     ctrLL=S.leaflet.getCenter();
     ctrUTM=_latLngToUTM(ctrLL.lat,ctrLL.lng);
+    // Output coordinates in FEET (UTM × 3.28084).
+    // S.ppm / effectivePpm is px/ft (AASHTO), so all vehicle dimensions are in feet.
+    // Outputting in feet ensures AutoCAD measures match: WB-67 W=8.5ft, etc.
+    ctrFt={easting:ctrUTM.easting*M2FT,northing:ctrUTM.northing*M2FT};
     toXY=pt=>{
       const ll=S.leaflet.containerPointToLatLng([pt.x,pt.y]);
       const u=_latLngToUTM(ll.lat,ll.lng);
-      return{x:u.easting,y:u.northing};
+      return{x:u.easting*M2FT,y:u.northing*M2FT};
     };
   } else {
     toXY=pt=>({x:pt.x/effectivePpm,y:-pt.y/effectivePpm});
   }
-  // Canvas size in metres — used to set EXTMIN/EXTMAX and VPORT height
+  // Canvas size in feet — used to set EXTMIN/EXTMAX
+  // effectivePpm is px/ft, so sz/effectivePpm = feet
   const _sz=isGeo?S.leaflet.getSize():{x:800,y:600};
   const _dxfW=_sz.x/effectivePpm, _dxfH=_sz.y/effectivePpm;
 
@@ -3230,11 +3236,13 @@ async function exportDXF(){
   const ns=ctrUTM.northern?'N':'S';
 
   // ── R12 (AC1009) geo DXF — no handles, no DIMSTYLE, opens in AutoCAD ─
+  // All coordinates in FEET (UTM metres × 3.28084).
+  // effectivePpm is px/ft, _dxfW/_dxfH are already in feet.
   let d='0\nSECTION\n2\nHEADER\n';
   d+='9\n$ACADVER\n1\nAC1009\n';
-  d+='9\n$INSUNITS\n70\n6\n';  // 6 = metres
-  d+=`9\n$EXTMIN\n10\n${(ctrUTM.easting-_dxfW/2).toFixed(2)}\n20\n${(ctrUTM.northing-_dxfH/2).toFixed(2)}\n30\n0.0\n`;
-  d+=`9\n$EXTMAX\n10\n${(ctrUTM.easting+_dxfW/2).toFixed(2)}\n20\n${(ctrUTM.northing+_dxfH/2).toFixed(2)}\n30\n0.0\n`;
+  d+='9\n$INSUNITS\n70\n2\n';  // 2 = feet (matches vehicle dimensions; S.ppm is px/ft)
+  d+=`9\n$EXTMIN\n10\n${(ctrFt.easting-_dxfW/2).toFixed(2)}\n20\n${(ctrFt.northing-_dxfH/2).toFixed(2)}\n30\n0.0\n`;
+  d+=`9\n$EXTMAX\n10\n${(ctrFt.easting+_dxfW/2).toFixed(2)}\n20\n${(ctrFt.northing+_dxfH/2).toFixed(2)}\n30\n0.0\n`;
   d+='0\nENDSEC\n';
   // R12 TABLES — minimal, no handles required
   d+='0\nSECTION\n2\nTABLES\n';
@@ -3251,8 +3259,9 @@ async function exportDXF(){
   d+=emitGeoR12(tracks.p1L,'REAR-AXLE')+emitGeoR12(tracks.p1R,'REAR-AXLE');
   if(hasTrailer) d+=emitGeoR12(tracks.tL,'TRAILER-AXLE')+emitGeoR12(tracks.tR,'TRAILER-AXLE');
   // GEOREF annotation — R12 TEXT (no handle/subclass markers needed)
-  const lbl=`CRS: WGS84 UTM Zone ${ctrUTM.zone}${ns}  EPSG:${epsg}  Ref:${ctrLL.lat.toFixed(6)},${ctrLL.lng.toFixed(6)}`;
-  d+=`0\nTEXT\n8\nGEOREF\n10\n${(ctrUTM.easting-_dxfW/2).toFixed(2)}\n20\n${(ctrUTM.northing+_dxfH/2+10).toFixed(2)}\n30\n0.0\n40\n5.0\n1\n${lbl}\n`;
+  // Text height 5ft, placed above drawing extents. All coords in feet.
+  const lbl=`CRS: WGS84 UTM Zone ${ctrUTM.zone}${ns} (EPSG:${epsg}) Coords in US Survey Feet  Ref:${ctrLL.lat.toFixed(6)},${ctrLL.lng.toFixed(6)}`;
+  d+=`0\nTEXT\n8\nGEOREF\n10\n${(ctrFt.easting-_dxfW/2).toFixed(2)}\n20\n${(ctrFt.northing+_dxfH/2+10).toFixed(2)}\n30\n0.0\n40\n5.0\n1\n${lbl}\n`;
   d+='0\nENDSEC\n0\nEOF\n';
 
   // ── Bundle into ZIP ──────────────────────────────────────────────────

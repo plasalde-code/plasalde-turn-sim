@@ -3161,21 +3161,15 @@ async function exportDXF(){
     return isNaN(b)||!isFinite(b)?0:b;
   }
 
-  let _geoHandle=0x9000; // geometry entities — well above structural handles (0x8000+)
-
-  // Emit one R2000 LWPOLYLINE with bulge-encoded arcs (geo mode).
-  function emitGeo(rawPts,layer){
+  // Emit one R12 POLYLINE/VERTEX/SEQEND — arc-fitting in canvas space, UTM output.
+  function emitGeoR12(rawPts,layer){
     if(!rawPts||rawPts.length<2) return'';
-    // Arc-fitting MUST run in canvas-relative metres (the space it was tuned for).
-    // pathToSegs uses hw=round(n/totalLen); with raw UTM coords totalLen is ~100s of metres
-    // giving a totally different smoothing window vs canvas pixels → wrong geometry.
-    // We fit in canvas space, then re-project each endpoint to UTM for the DXF vertices.
+    // Fit in canvas-relative metres (pathToSegs was tuned for this space).
     const canvasPts=rawPts.map(p=>({x:p.x/effectivePpm,y:-p.y/effectivePpm}));
     const segs=pathToSegs(canvasPts);
     if(!segs.length) return'';
-    // Convert a canvas-relative point back to DXF output coords (UTM in geo mode)
+    // Convert canvas-relative point → UTM for DXF output
     const toDxf=cp=>toXY({x:cp.x*effectivePpm,y:-cp.y*effectivePpm});
-    // Build vertex list: each seg contributes its start point + bulge
     const verts=[];
     for(const seg of segs){
       const b=seg.t==='A'?arcBulge(seg):0;
@@ -3185,14 +3179,12 @@ async function exportDXF(){
     const last=segs[segs.length-1];
     const lastXY=toDxf(last.p2);
     verts.push({x:lastXY.x,y:lastXY.y,b:0});
-    const h=(_geoHandle++).toString(16).toUpperCase();
-    let s=`0\nLWPOLYLINE\n5\n${h}\n330\n${hBRM}\n100\nAcDbEntity\n8\n${layer}\n100\nAcDbPolyline\n`;
-    s+=`90\n${verts.length}\n70\n0\n`;
+    let s=`0\nPOLYLINE\n8\n${layer}\n66\n1\n10\n0.0\n20\n0.0\n30\n0.0\n70\n0\n`;
     for(const v of verts){
-      s+=`10\n${v.x.toFixed(4)}\n20\n${v.y.toFixed(4)}\n`;
+      s+=`0\nVERTEX\n8\n${layer}\n10\n${v.x.toFixed(4)}\n20\n${v.y.toFixed(4)}\n30\n0.0\n`;
       if(Math.abs(v.b)>1e-10) s+=`42\n${v.b.toFixed(8)}\n`;
     }
-    return s;
+    return s+`0\nSEQEND\n8\n${layer}\n`;
   }
 
   // Emit one R12 POLYLINE/VERTEX/SEQEND with bulge-encoded arcs (non-geo mode).
@@ -3243,179 +3235,38 @@ async function exportDXF(){
   // ── GEO: try to capture aerial tiles ────────────────────────────────
   const mapCanvas=await _captureLeafletView();
 
-  // ── IMAGE entity geometry ────────────────────────────────────────────
-  // PNG pixel (0,0) is the TOP-LEFT (NW) corner of the canvas.
-  // DXF IMAGE places pixel (0,0) at the insertion point.
-  // Therefore insertion = NW corner, U = NW→NE per pixel (rightward),
-  // V = NW→SW per pixel (downward → negative northing component).
-  // Previous bug: insertion was SW, which placed the image upside-down.
-  let imgInsX=0,imgInsY=0,imgUX=0,imgUY=0,imgVX=0,imgVY=0,imgW=0,imgH=0;
-  if(mapCanvas){
-    const sz=S.leaflet.getSize();
-    imgW=sz.x; imgH=sz.y;
-    const nwLL=S.leaflet.containerPointToLatLng([0,0]);        // top-left  = NW
-    const neLL=S.leaflet.containerPointToLatLng([sz.x,0]);     // top-right = NE
-    const swLL=S.leaflet.containerPointToLatLng([0,sz.y]);     // bot-left  = SW
-    const uNW=_latLngToUTM(nwLL.lat,nwLL.lng);
-    const uNE=_latLngToUTM(neLL.lat,neLL.lng);
-    const uSW=_latLngToUTM(swLL.lat,swLL.lng);
-    imgInsX=uNW.easting;  imgInsY=uNW.northing;                // insertion = NW ← FIXED
-    imgUX=(uNE.easting -uNW.easting)/imgW; imgUY=(uNE.northing-uNW.northing)/imgW; // U: rightward
-    imgVX=(uSW.easting -uNW.easting)/imgH; imgVY=(uSW.northing-uNW.northing)/imgH; // V: downward (negative)
-  }
   // ── Layer definitions (geo mode) ────────────────────────────────────
   const hasTrailer=tracks.tL&&tracks.tL.length>0;
   const ld=[['CENTERLINE',2],['FRONT-WHEEL',4],['REAR-AXLE',3],['GEOREF',8]];
   if(hasTrailer) ld.push(['TRAILER-AXLE',6]);
-  if(mapCanvas) ld.push(['AERIAL',9]);
 
-  // ── Dynamic handle allocator ──────────────────────────────────────────
-  // All structural handles (TABLES/BLOCKS/OBJECTS) start at 0x8000.
-  // Geometry entities (_geoHandle) start at 0x9000.
-  // HANDSEED is set to 0xA000 so AutoCAD assigns new objects starting there.
-  // This guarantees zero collision with AutoCAD's internal handle assignments.
-  let _hs=0x8000;
-  const nh=()=>(_hs++).toString(16).toUpperCase();
-
-  const hVP=nh(),hVPA=nh();                    // VPORT tbl, *Active vport
-  const hLT=nh(),hLTC=nh();                    // LTYPE tbl, CONTINUOUS
-  const hLA=nh(),hLA0=nh();                    // LAYER tbl, layer "0"
-  const hLAu=ld.map(()=>nh());                 // user layer entries (one per layer)
-  const hST=nh(),hSTA=nh();                    // STYLE tbl, Standard
-  const hVI=nh();                               // VIEW tbl
-  const hUC=nh();                               // UCS tbl
-  const hAP=nh(),hAPA=nh();                    // APPID tbl, ACAD appid
-  const hDS=nh(),hDSA=nh();                    // DIMSTYLE tbl, Standard dimstyle
-  const hBR=nh(),hBRM=nh(),hBRP=nh();         // BLKREC tbl, *Model_Space, *Paper_Space
-  const hBM=nh(),hBME=nh();                    // *Model_Space BLOCK + ENDBLK
-  const hBP=nh(),hBPE=nh();                    // *Paper_Space BLOCK + ENDBLK
-  const hOD=nh();                               // root OBJECTS dictionary
-  const hID=mapCanvas?nh():null;               // image sub-dictionary
-  const hIF=mapCanvas?nh():null;               // IMAGEDEF
-  const hIR=mapCanvas?nh():null;               // IMAGEDEF_REACTOR
-  const hIE=mapCanvas?nh():null;               // IMAGE entity (referenced by IMAGEDEF_REACTOR)
-
-  // DXF handles (all valid hex). Layout:
-  //  80=VPORT tbl  81=*Active vport   82=LTYPE tbl  83=CONTINUOUS
-  //  84=LAYER tbl  85-8E=layer entries  8F=STYLE tbl  90=Standard style
-  //  91=VIEW tbl   92=UCS tbl  93=APPID tbl  94=ACAD appid
-  //  95=DIMSTYLE tbl  96=Std dimstyle  97=BLKREC tbl  98=*Model_Space rec  99=*Paper_Space rec
-  //  9A=*Model_Space blk  9B=endblk  9C=*Paper_Space blk  9D=endblk
-  //  A0=IMAGE entity  B0=root obj dict  B1=img dict  B2=IMAGEDEF  B3=IMAGEDEF_REACTOR
-
-  const arc='WinobjARX|Product Desc:     ObjectDBX Classes|Company:          Autodesk|WEB Address:      www.autodesk.com';
-
-  let d='';
-
-  // HEADER
   const epsg=ctrUTM.northern?32600+ctrUTM.zone:32700+ctrUTM.zone;
   const ns=ctrUTM.northern?'N':'S';
-  d+='0\nSECTION\n2\nHEADER\n';
-  d+='9\n$ACADVER\n1\nAC1015\n';   // R2000
-  d+='9\n$DWGCODEPAGE\n3\nANSI_1252\n'; // required by R2000 readers
-  d+='9\n$INSUNITS\n70\n6\n';      // 6 = metres
+
+  // ── R12 (AC1009) geo DXF — no handles, no DIMSTYLE, opens in AutoCAD ─
+  let d='0\nSECTION\n2\nHEADER\n';
+  d+='9\n$ACADVER\n1\nAC1009\n';
+  d+='9\n$INSUNITS\n70\n6\n';  // 6 = metres
   d+=`9\n$EXTMIN\n10\n${(ctrUTM.easting-_dxfW/2).toFixed(2)}\n20\n${(ctrUTM.northing-_dxfH/2).toFixed(2)}\n30\n0.0\n`;
   d+=`9\n$EXTMAX\n10\n${(ctrUTM.easting+_dxfW/2).toFixed(2)}\n20\n${(ctrUTM.northing+_dxfH/2).toFixed(2)}\n30\n0.0\n`;
-  d+='9\n$HANDSEED\n5\nA0000\n'; // AutoCAD allocates new handles from here upward
   d+='0\nENDSEC\n';
-
-  // CLASSES — register proxy classes needed for IMAGE entity
-  d+='0\nSECTION\n2\nCLASSES\n';
-  if(mapCanvas){
-    // R2000 CLASS entries need 280 (was-a-proxy) and 281 (is-an-entity), NOT group 91
-    d+=`0\nCLASS\n1\nIMAGE\n2\nAcDbRasterImage\n3\n${arc}\n90\n0\n280\n0\n281\n1\n`;
-    d+=`0\nCLASS\n1\nIMAGEDEF\n2\nAcDbRasterImageDef\n3\n${arc}\n90\n0\n280\n0\n281\n0\n`;
-    d+=`0\nCLASS\n1\nIMAGEDEF_REACTOR\n2\nAcDbRasterImageDefReactor\n3\n${arc}\n90\n1\n280\n0\n281\n0\n`;
-  }
-  d+='0\nENDSEC\n';
-
-  // TABLES — full set required for R2000 (all handles from dynamic allocator)
+  // R12 TABLES — minimal, no handles required
   d+='0\nSECTION\n2\nTABLES\n';
-  // VPORT
-  d+=`0\nTABLE\n2\nVPORT\n5\n${hVP}\n330\n0\n100\nAcDbSymbolTable\n70\n1\n`;
-  d+=`0\nVPORT\n5\n${hVPA}\n330\n${hVP}\n100\nAcDbSymbolTableRecord\n100\nAcDbViewportTableRecord\n2\n*Active\n70\n0\n`;
-  d+=`10\n0.0\n20\n0.0\n11\n1.0\n21\n1.0\n12\n${ctrUTM.easting.toFixed(2)}\n22\n${ctrUTM.northing.toFixed(2)}\n`;
-  d+=`13\n0.0\n23\n0.0\n14\n1.0\n24\n1.0\n15\n0.0\n25\n0.0\n16\n0.0\n26\n0.0\n36\n1.0\n`;
-  d+=`17\n0.0\n27\n0.0\n37\n0.0\n40\n${(_dxfH*1.1).toFixed(2)}\n41\n1.0\n42\n50.0\n43\n0.0\n44\n4.0\n50\n0.0\n51\n0.0\n71\n0\n72\n100\n73\n1\n74\n3\n75\n0\n76\n1\n77\n0\n78\n0\n`;
+  d+='0\nTABLE\n2\nLTYPE\n70\n1\n';
+  d+='0\nLTYPE\n2\nCONTINUOUS\n70\n0\n3\nSolid line\n72\n65\n73\n0\n40\n0.0\n';
   d+='0\nENDTAB\n';
-  // LTYPE
-  d+=`0\nTABLE\n2\nLTYPE\n5\n${hLT}\n330\n0\n100\nAcDbSymbolTable\n70\n1\n`;
-  d+=`0\nLTYPE\n5\n${hLTC}\n330\n${hLT}\n100\nAcDbSymbolTableRecord\n100\nAcDbLinetypeTableRecord\n2\nCONTINUOUS\n70\n0\n3\nSolid line\n72\n65\n73\n0\n40\n0.0\n`;
-  d+='0\nENDTAB\n';
-  // LAYER (includes required layer "0")
-  d+=`0\nTABLE\n2\nLAYER\n5\n${hLA}\n330\n0\n100\nAcDbSymbolTable\n70\n${ld.length+1}\n`;
-  d+=`0\nLAYER\n5\n${hLA0}\n330\n${hLA}\n100\nAcDbSymbolTableRecord\n100\nAcDbLayerTableRecord\n2\n0\n70\n0\n62\n7\n6\nCONTINUOUS\n390\nNormal\n`;
-  ld.forEach(([n,c],i)=>{
-    d+=`0\nLAYER\n5\n${hLAu[i]}\n330\n${hLA}\n100\nAcDbSymbolTableRecord\n100\nAcDbLayerTableRecord\n2\n${n}\n70\n0\n62\n${c}\n6\nCONTINUOUS\n390\nNormal\n`;
-  });
-  d+='0\nENDTAB\n';
-  // STYLE
-  d+=`0\nTABLE\n2\nSTYLE\n5\n${hST}\n330\n0\n100\nAcDbSymbolTable\n70\n1\n`;
-  d+=`0\nSTYLE\n5\n${hSTA}\n330\n${hST}\n100\nAcDbSymbolTableRecord\n100\nAcDbTextStyleTableRecord\n2\nStandard\n70\n0\n40\n0.0\n41\n1.0\n50\n0.0\n71\n0\n42\n2.5\n3\ntxt\n4\n\n`;
-  d+='0\nENDTAB\n';
-  // VIEW (empty)
-  d+=`0\nTABLE\n2\nVIEW\n5\n${hVI}\n330\n0\n100\nAcDbSymbolTable\n70\n0\n0\nENDTAB\n`;
-  // UCS (empty)
-  d+=`0\nTABLE\n2\nUCS\n5\n${hUC}\n330\n0\n100\nAcDbSymbolTable\n70\n0\n0\nENDTAB\n`;
-  // APPID
-  d+=`0\nTABLE\n2\nAPPID\n5\n${hAP}\n330\n0\n100\nAcDbSymbolTable\n70\n1\n`;
-  d+=`0\nAPPID\n5\n${hAPA}\n330\n${hAP}\n100\nAcDbSymbolTableRecord\n100\nAcDbRegAppTableRecord\n2\nACAD\n70\n0\n`;
-  d+='0\nENDTAB\n';
-  // DIMSTYLE — AcDbDimStyleTable subclass required by R2000
-  d+=`0\nTABLE\n2\nDIMSTYLE\n5\n${hDS}\n330\n0\n100\nAcDbSymbolTable\n70\n1\n100\nAcDbDimStyleTable\n71\n1\n`;
-  d+=`0\nDIMSTYLE\n5\n${hDSA}\n330\n${hDS}\n100\nAcDbSymbolTableRecord\n100\nAcDbDimStyleTableRecord\n2\nStandard\n70\n0\n`;
-  d+='0\nENDTAB\n';
-  // BLOCK_RECORD
-  d+=`0\nTABLE\n2\nBLOCK_RECORD\n5\n${hBR}\n330\n0\n100\nAcDbSymbolTable\n70\n2\n`;
-  d+=`0\nBLOCK_RECORD\n5\n${hBRM}\n330\n${hBR}\n100\nAcDbSymbolTableRecord\n100\nAcDbBlockTableRecord\n2\n*Model_Space\n`;
-  d+=`0\nBLOCK_RECORD\n5\n${hBRP}\n330\n${hBR}\n100\nAcDbSymbolTableRecord\n100\nAcDbBlockTableRecord\n2\n*Paper_Space\n`;
-  d+='0\nENDTAB\n';
-  d+='0\nENDSEC\n';
-
-  // BLOCKS — required even if empty
-  d+='0\nSECTION\n2\nBLOCKS\n';
-  d+=`0\nBLOCK\n5\n${hBM}\n330\n${hBRM}\n100\nAcDbEntity\n8\n0\n100\nAcDbBlockBegin\n2\n*Model_Space\n70\n0\n10\n0.0\n20\n0.0\n30\n0.0\n3\n*Model_Space\n1\n\n`;
-  d+=`0\nENDBLK\n5\n${hBME}\n330\n${hBRM}\n100\nAcDbEntity\n8\n0\n100\nAcDbBlockEnd\n`;
-  d+=`0\nBLOCK\n5\n${hBP}\n330\n${hBRP}\n100\nAcDbEntity\n8\n0\n100\nAcDbBlockBegin\n2\n*Paper_Space\n70\n0\n10\n0.0\n20\n0.0\n30\n0.0\n3\n*Paper_Space\n1\n\n`;
-  d+=`0\nENDBLK\n5\n${hBPE}\n330\n${hBRP}\n100\nAcDbEntity\n8\n0\n100\nAcDbBlockEnd\n`;
-  d+='0\nENDSEC\n';
-
+  d+=`0\nTABLE\n2\nLAYER\n70\n${ld.length}\n`;
+  for(const[n,c]of ld) d+=`0\nLAYER\n2\n${n}\n70\n0\n62\n${c}\n6\nCONTINUOUS\n`;
+  d+='0\nENDTAB\n0\nENDSEC\n';
   // ENTITIES
   d+='0\nSECTION\n2\nENTITIES\n';
-
-  // Vector paths — LINE/ARC geometry (no overhang, no swept envelope)
-  d+=emitGeo(pathPts,'CENTERLINE');
-  d+=emitGeo(tracks.fL,'FRONT-WHEEL')+emitGeo(tracks.fR,'FRONT-WHEEL');
-  d+=emitGeo(tracks.p1L,'REAR-AXLE')+emitGeo(tracks.p1R,'REAR-AXLE');
-  if(hasTrailer) d+=emitGeo(tracks.tL,'TRAILER-AXLE')+emitGeo(tracks.tR,'TRAILER-AXLE');
-
-  // GEOREF annotation text — with R2000 handle + subclass markers
+  d+=emitGeoR12(pathPts,'CENTERLINE');
+  d+=emitGeoR12(tracks.fL,'FRONT-WHEEL')+emitGeoR12(tracks.fR,'FRONT-WHEEL');
+  d+=emitGeoR12(tracks.p1L,'REAR-AXLE')+emitGeoR12(tracks.p1R,'REAR-AXLE');
+  if(hasTrailer) d+=emitGeoR12(tracks.tL,'TRAILER-AXLE')+emitGeoR12(tracks.tR,'TRAILER-AXLE');
+  // GEOREF annotation — R12 TEXT (no handle/subclass markers needed)
   const lbl=`CRS: WGS84 UTM Zone ${ctrUTM.zone}${ns}  EPSG:${epsg}  Ref:${ctrLL.lat.toFixed(6)},${ctrLL.lng.toFixed(6)}`;
-  {const th=(_geoHandle++).toString(16).toUpperCase();
-  d+=`0\nTEXT\n5\n${th}\n330\n${hBRM}\n100\nAcDbEntity\n8\nGEOREF\n100\nAcDbText\n10\n${(ctrUTM.easting-_dxfW/2).toFixed(2)}\n20\n${(ctrUTM.northing+_dxfH/2+10).toFixed(2)}\n30\n0.0\n40\n5.0\n1\n${lbl}\n100\nAcDbText\n`;}
-
-  // IMAGE entity — aerial raster background
-  if(mapCanvas){
-    d+=`0\nIMAGE\n5\n${hIE}\n330\n${hBRM}\n100\nAcDbEntity\n8\nAERIAL\n`;
-    d+=`100\nAcDbRasterImage\n`;
-    d+=`10\n${imgInsX.toFixed(4)}\n20\n${imgInsY.toFixed(4)}\n30\n0.0\n`;
-    d+=`11\n${imgUX.toFixed(10)}\n21\n${imgUY.toFixed(10)}\n31\n0.0\n`;
-    d+=`12\n${imgVX.toFixed(10)}\n22\n${imgVY.toFixed(10)}\n32\n0.0\n`;
-    d+=`13\n${imgW}\n23\n${imgH}\n`;
-    d+=`340\n${hIF}\n70\n7\n280\n0\n281\n50\n282\n50\n283\n0\n360\n${hIR}\n`;
-  }
-  d+='0\nENDSEC\n';
-
-  // OBJECTS — root dictionary + image support objects
-  d+='0\nSECTION\n2\nOBJECTS\n';
-  if(mapCanvas){
-    d+=`0\nDICTIONARY\n5\n${hOD}\n330\n0\n100\nAcDbDictionary\n281\n1\n3\nACAD_IMAGE_DICT\n350\n${hID}\n`;
-    d+=`0\nDICTIONARY\n5\n${hID}\n330\n${hOD}\n100\nAcDbDictionary\n281\n1\n3\naerial\n350\n${hIF}\n`;
-    d+=`0\nIMAGEDEF\n5\n${hIF}\n330\n${hID}\n100\nAcDbRasterImageDef\n1\naerial.png\n10\n${imgW}\n20\n${imgH}\n11\n1.0\n21\n1.0\n280\n1\n281\n5\n`;
-    d+=`0\nIMAGEDEF_REACTOR\n5\n${hIR}\n330\n${hIE}\n100\nAcDbRasterImageDefReactor\n90\n2\n`;
-  } else {
-    d+=`0\nDICTIONARY\n5\n${hOD}\n330\n0\n100\nAcDbDictionary\n281\n1\n`;
-  }
+  d+=`0\nTEXT\n8\nGEOREF\n10\n${(ctrUTM.easting-_dxfW/2).toFixed(2)}\n20\n${(ctrUTM.northing+_dxfH/2+10).toFixed(2)}\n30\n0.0\n40\n5.0\n1\n${lbl}\n`;
   d+='0\nENDSEC\n0\nEOF\n';
 
   // ── Bundle into ZIP ──────────────────────────────────────────────────

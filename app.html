@@ -3300,9 +3300,10 @@ async function exportDXF(){
   // CLASSES — register proxy classes needed for IMAGE entity
   d+='0\nSECTION\n2\nCLASSES\n';
   if(mapCanvas){
-    d+=`0\nCLASS\n1\nIMAGE\n2\nAcDbRasterImage\n3\n${arc}\n90\n0\n91\n1\n`;
-    d+=`0\nCLASS\n1\nIMAGEDEF\n2\nAcDbRasterImageDef\n3\n${arc}\n90\n0\n91\n0\n`;
-    d+=`0\nCLASS\n1\nIMAGEDEF_REACTOR\n2\nAcDbRasterImageDefReactor\n3\n${arc}\n90\n1\n91\n1\n`;
+    // R2000 CLASS entries need 280 (was-a-proxy) and 281 (is-an-entity), NOT group 91
+    d+=`0\nCLASS\n1\nIMAGE\n2\nAcDbRasterImage\n3\n${arc}\n90\n0\n280\n0\n281\n1\n`;
+    d+=`0\nCLASS\n1\nIMAGEDEF\n2\nAcDbRasterImageDef\n3\n${arc}\n90\n0\n280\n0\n281\n0\n`;
+    d+=`0\nCLASS\n1\nIMAGEDEF_REACTOR\n2\nAcDbRasterImageDefReactor\n3\n${arc}\n90\n1\n280\n0\n281\n0\n`;
   }
   d+='0\nENDSEC\n';
 

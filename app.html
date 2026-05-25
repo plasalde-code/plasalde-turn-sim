@@ -3203,10 +3203,9 @@ async function exportDXF(){
 
   // ── NON-GEO: plain R12 DXF ──────────────────────────────────────────
   if(!isGeo){
-    // Layers: centerline (yellow), front wheels (cyan), rear axle (green), trailer axle (magenta)
+    // 3 layers: CENTERLINE (yellow), WHEEL-PATHS (cyan), VEHICLE-OUTLINE (white)
     const hasTrailer=tracks.tL&&tracks.tL.length>0;
-    const ld=[['CENTERLINE',2],['FRONT-WHEEL',4],['REAR-AXLE',3],['SWEPT-ENV',1]];
-    if(hasTrailer) ld.push(['TRAILER-AXLE',6]);
+    const ld=[['CENTERLINE',2],['WHEEL-PATHS',4],['VEHICLE-OUTLINE',7]];
     let d='0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1009\n9\n$INSUNITS\n70\n2\n';
     d+='9\n$EXTMIN\n10\n0.0\n20\n0.0\n30\n0.0\n9\n$EXTMAX\n10\n1000.0\n20\n1000.0\n30\n0.0\n0\nENDSEC\n';
     d+='0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLTYPE\n70\n1\n';
@@ -3215,10 +3214,10 @@ async function exportDXF(){
     for(const[n,c]of ld) d+=`0\nLAYER\n2\n${n}\n70\n0\n62\n${c}\n6\nCONTINUOUS\n`;
     d+='0\nENDTAB\n0\nENDSEC\n0\nSECTION\n2\nENTITIES\n';
     d+=emitR12(pathPts,'CENTERLINE');
-    d+=emitR12(tracks.fL,'FRONT-WHEEL')+emitR12(tracks.fR,'FRONT-WHEEL');
-    d+=emitR12(tracks.p1L,'REAR-AXLE')+emitR12(tracks.p1R,'REAR-AXLE');
-    if(hasTrailer) d+=emitR12(tracks.tL,'TRAILER-AXLE')+emitR12(tracks.tR,'TRAILER-AXLE');
-    d+=emitR12(env.leftB,'SWEPT-ENV')+emitR12(env.rightB,'SWEPT-ENV');
+    d+=emitR12(tracks.fL,'WHEEL-PATHS')+emitR12(tracks.fR,'WHEEL-PATHS');
+    d+=emitR12(tracks.p1L,'WHEEL-PATHS')+emitR12(tracks.p1R,'WHEEL-PATHS');
+    if(hasTrailer) d+=emitR12(tracks.tL,'WHEEL-PATHS')+emitR12(tracks.tR,'WHEEL-PATHS');
+    d+=emitR12(env.leftB,'VEHICLE-OUTLINE')+emitR12(env.rightB,'VEHICLE-OUTLINE');
     d+='0\nENDSEC\n0\nEOF\n';
     const blob=new Blob([d],{type:'text/plain'});
     const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`${stem}.dxf`; a.click();
@@ -3228,10 +3227,9 @@ async function exportDXF(){
   // ── GEO: try to capture aerial tiles ────────────────────────────────
   const mapCanvas=await _captureLeafletView();
 
-  // ── Layer definitions (geo mode) ────────────────────────────────────
+  // ── Layer definitions (geo mode) — 3 layers matching user's requirement ─
   const hasTrailer=tracks.tL&&tracks.tL.length>0;
-  const ld=[['CENTERLINE',2],['FRONT-WHEEL',4],['REAR-AXLE',3],['SWEPT-ENV',1]];
-  if(hasTrailer) ld.push(['TRAILER-AXLE',6]);
+  const ld=[['CENTERLINE',2],['WHEEL-PATHS',4],['VEHICLE-OUTLINE',7]];
 
   // ── R12 (AC1009) geo DXF — no handles, no DIMSTYLE, opens in AutoCAD ─
   // All coordinates in FEET (UTM metres × 3.28084).
@@ -3253,10 +3251,10 @@ async function exportDXF(){
   // ENTITIES
   d+='0\nSECTION\n2\nENTITIES\n';
   d+=emitGeoR12(pathPts,'CENTERLINE');
-  d+=emitGeoR12(tracks.fL,'FRONT-WHEEL')+emitGeoR12(tracks.fR,'FRONT-WHEEL');
-  d+=emitGeoR12(tracks.p1L,'REAR-AXLE')+emitGeoR12(tracks.p1R,'REAR-AXLE');
-  if(hasTrailer) d+=emitGeoR12(tracks.tL,'TRAILER-AXLE')+emitGeoR12(tracks.tR,'TRAILER-AXLE');
-  d+=emitGeoR12(env.leftB,'SWEPT-ENV')+emitGeoR12(env.rightB,'SWEPT-ENV');
+  d+=emitGeoR12(tracks.fL,'WHEEL-PATHS')+emitGeoR12(tracks.fR,'WHEEL-PATHS');
+  d+=emitGeoR12(tracks.p1L,'WHEEL-PATHS')+emitGeoR12(tracks.p1R,'WHEEL-PATHS');
+  if(hasTrailer) d+=emitGeoR12(tracks.tL,'WHEEL-PATHS')+emitGeoR12(tracks.tR,'WHEEL-PATHS');
+  d+=emitGeoR12(env.leftB,'VEHICLE-OUTLINE')+emitGeoR12(env.rightB,'VEHICLE-OUTLINE');
   d+='0\nENDSEC\n0\nEOF\n';
 
   // ── Bundle into ZIP ──────────────────────────────────────────────────
@@ -3278,7 +3276,7 @@ async function exportDXF(){
     `  1. Extract ALL files to the same folder\n`+
     `  2. Open ${stem}.dxf — type ZE (Zoom Extents) if blank\n`+
     (mapCanvas?`  3. Aerial: IMAGEATTACH → select aerial.png → OK\n`:`  3. No aerial captured\n`)+
-    `\nLayers: CENTERLINE, FRONT-WHEEL, REAR-AXLE, SWEPT-ENV${tracks.tL&&tracks.tL.length?', TRAILER-AXLE':''}`;
+    `\nLayers: CENTERLINE, WHEEL-PATHS, VEHICLE-OUTLINE`;
 
   zip.file('README.txt',readme);
   const zipBlob=await zip.generateAsync({type:'blob',compression:'DEFLATE'});

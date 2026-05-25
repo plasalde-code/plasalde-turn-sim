@@ -3205,7 +3205,7 @@ async function exportDXF(){
   if(!isGeo){
     // Layers: centerline (yellow), front wheels (cyan), rear axle (green), trailer axle (magenta)
     const hasTrailer=tracks.tL&&tracks.tL.length>0;
-    const ld=[['CENTERLINE',2],['FRONT-WHEEL',4],['REAR-AXLE',3]];
+    const ld=[['CENTERLINE',2],['FRONT-WHEEL',4],['REAR-AXLE',3],['SWEPT-ENV',1]];
     if(hasTrailer) ld.push(['TRAILER-AXLE',6]);
     let d='0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1009\n9\n$INSUNITS\n70\n2\n';
     d+='9\n$EXTMIN\n10\n0.0\n20\n0.0\n30\n0.0\n9\n$EXTMAX\n10\n1000.0\n20\n1000.0\n30\n0.0\n0\nENDSEC\n';
@@ -3218,6 +3218,7 @@ async function exportDXF(){
     d+=emitR12(tracks.fL,'FRONT-WHEEL')+emitR12(tracks.fR,'FRONT-WHEEL');
     d+=emitR12(tracks.p1L,'REAR-AXLE')+emitR12(tracks.p1R,'REAR-AXLE');
     if(hasTrailer) d+=emitR12(tracks.tL,'TRAILER-AXLE')+emitR12(tracks.tR,'TRAILER-AXLE');
+    d+=emitR12(env.leftB,'SWEPT-ENV')+emitR12(env.rightB,'SWEPT-ENV');
     d+='0\nENDSEC\n0\nEOF\n';
     const blob=new Blob([d],{type:'text/plain'});
     const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`${stem}.dxf`; a.click();
@@ -3229,11 +3230,8 @@ async function exportDXF(){
 
   // ── Layer definitions (geo mode) ────────────────────────────────────
   const hasTrailer=tracks.tL&&tracks.tL.length>0;
-  const ld=[['CENTERLINE',2],['FRONT-WHEEL',4],['REAR-AXLE',3],['GEOREF',8]];
+  const ld=[['CENTERLINE',2],['FRONT-WHEEL',4],['REAR-AXLE',3],['SWEPT-ENV',1]];
   if(hasTrailer) ld.push(['TRAILER-AXLE',6]);
-
-  const epsg=ctrUTM.northern?32600+ctrUTM.zone:32700+ctrUTM.zone;
-  const ns=ctrUTM.northern?'N':'S';
 
   // ── R12 (AC1009) geo DXF — no handles, no DIMSTYLE, opens in AutoCAD ─
   // All coordinates in FEET (UTM metres × 3.28084).
@@ -3258,10 +3256,7 @@ async function exportDXF(){
   d+=emitGeoR12(tracks.fL,'FRONT-WHEEL')+emitGeoR12(tracks.fR,'FRONT-WHEEL');
   d+=emitGeoR12(tracks.p1L,'REAR-AXLE')+emitGeoR12(tracks.p1R,'REAR-AXLE');
   if(hasTrailer) d+=emitGeoR12(tracks.tL,'TRAILER-AXLE')+emitGeoR12(tracks.tR,'TRAILER-AXLE');
-  // GEOREF annotation — R12 TEXT (no handle/subclass markers needed)
-  // Text height 5ft, placed above drawing extents. All coords in feet.
-  const lbl=`CRS: WGS84 UTM Zone ${ctrUTM.zone}${ns} (EPSG:${epsg}) Coords in US Survey Feet  Ref:${ctrLL.lat.toFixed(6)},${ctrLL.lng.toFixed(6)}`;
-  d+=`0\nTEXT\n8\nGEOREF\n10\n${(ctrFt.easting-_dxfW/2).toFixed(2)}\n20\n${(ctrFt.northing+_dxfH/2+10).toFixed(2)}\n30\n0.0\n40\n5.0\n1\n${lbl}\n`;
+  d+=emitGeoR12(env.leftB,'SWEPT-ENV')+emitGeoR12(env.rightB,'SWEPT-ENV');
   d+='0\nENDSEC\n0\nEOF\n';
 
   // ── Bundle into ZIP ──────────────────────────────────────────────────

@@ -3078,14 +3078,10 @@ async function exportDXF(){
   const _sz=isGeo?S.leaflet.getSize():{x:800,y:600};
   const _dxfW=_sz.x/effectivePpm, _dxfH=_sz.y/effectivePpm;
 
-  // ── Path simplification ───────────────────────────────────────────────
-  // Ramer-Douglas-Peucker: reduces point count while preserving path shape.
-  // eps = max allowed chord deviation (same units as pts.x / pts.y).
-  // This avoids the diagonal-slash problem that arc-fitting causes on long
-  // paths: arc-fitting jumped from segment start to end as a straight line,
-  // cutting across the drawing when the path had gradual curvature.
-  // RDP keeps enough points so every retained straight segment stays within
-  // eps of the original curve.
+  // ── Hybrid arc-fit + RDP path export ─────────────────────────────────
+  // Ramer-Douglas-Peucker simplification (eps in same units as pts).
+  // Used on "straight" sub-sections so they follow the actual alignment
+  // instead of cutting diagonally across the drawing.
   function rdp(pts,eps){
     if(pts.length<=2) return pts;
     const last=pts.length-1;
@@ -3106,19 +3102,119 @@ async function exportDXF(){
     return[pts[0],pts[last]];
   }
 
-  // Emit one R12 POLYLINE with RDP simplification (geo mode).
-  // Converts canvas px → canvas feet → DXF coords via toXY.
-  // Tolerance 0.5 ft keeps path accurate while removing redundant points.
+  // Circle through 3 non-collinear points. Returns {cx,cy,r} or null.
+  function circle3pt(a,b,c){
+    const ax=b.x-a.x,ay=b.y-a.y,bx=c.x-a.x,by=c.y-a.y;
+    const D=2*(ax*by-ay*bx);
+    if(Math.abs(D)<1e-10) return null;
+    const ux=(by*(ax*ax+ay*ay)-ay*(bx*bx+by*by))/D;
+    const uy=(ax*(bx*bx+by*by)-bx*(ax*ax+ay*ay))/D;
+    return{cx:a.x+ux,cy:a.y+uy,r:Math.sqrt(ux*ux+uy*uy)};
+  }
+
+  // Classify path into {t:'L'|'A', p1, p2, i1, i2, [ccw,a1,a2]} segments.
+  // i1/i2 are indices into pts so LINE sections can be RDP-sub-sampled.
+  function pathToSegs(pts){
+    if(!pts||pts.length<2) return[];
+    const n=pts.length;
+    if(n===2) return[{t:'L',p1:pts[0],p2:pts[1],i1:0,i2:1}];
+
+    const s=[0],dir=[];
+    for(let i=0;i<n-1;i++){
+      const dx=pts[i+1].x-pts[i].x,dy=pts[i+1].y-pts[i].y;
+      dir.push(Math.atan2(dy,dx));
+      s.push(s[i]+Math.sqrt(dx*dx+dy*dy));
+    }
+    const totalLen=s[n-1];
+    if(totalLen<1e-10) return[{t:'L',p1:pts[0],p2:pts[n-1],i1:0,i2:n-1}];
+
+    const ud=[dir[0]];
+    for(let i=1;i<dir.length;i++){
+      let d=dir[i]-ud[i-1];
+      while(d>Math.PI)d-=2*Math.PI; while(d<-Math.PI)d+=2*Math.PI;
+      ud.push(ud[i-1]+d);
+    }
+    const hw=Math.max(2,Math.min(12,Math.round(n/totalLen)));
+    const sm=v=>v.map((_,i)=>{
+      let sum=0,cnt=0;
+      for(let j=Math.max(0,i-hw);j<=Math.min(v.length-1,i+hw);j++){sum+=v[j];cnt++;}
+      return sum/cnt;
+    });
+    const sd=sm(ud);
+    const k=ud.map((_,i)=>{
+      if(i===0||i===ud.length-1) return 0;
+      const ds=s[i+2]-s[i];
+      return ds>1e-10?(sd[i+1]-sd[i-1])/ds:0;
+    });
+    const sk=sm(k);
+    const kThr=0.02; // rad/ft — curvature below this treated as straight
+    const isSt=pts.map((_,i)=>Math.abs(sk[Math.min(i,sk.length-1)])<kThr);
+
+    const segs=[];
+    let i=0;
+    while(i<n-1){
+      const type=isSt[i];
+      let j=i+1;
+      while(j<n-1&&isSt[j]===type) j++;
+      if(type){
+        segs.push({t:'L',p1:pts[i],p2:pts[j],i1:i,i2:j});
+      } else {
+        const mid=Math.floor((i+j)/2);
+        const c=circle3pt(pts[i],pts[mid],pts[j]);
+        if(c&&c.r>0.01&&c.r<5e4&&!isNaN(c.cx)){
+          const v1x=pts[Math.min(i+1,n-1)].x-pts[i].x,v1y=pts[Math.min(i+1,n-1)].y-pts[i].y;
+          const ccw=(pts[i].x-c.cx)*v1y-(pts[i].y-c.cy)*v1x>0;
+          const a1=Math.atan2(pts[i].y-c.cy,pts[i].x-c.cx)*180/Math.PI;
+          const a2=Math.atan2(pts[j].y-c.cy,pts[j].x-c.cx)*180/Math.PI;
+          segs.push({t:'A',p1:pts[i],p2:pts[j],ccw,a1,a2,i1:i,i2:j});
+        } else {
+          segs.push({t:'L',p1:pts[i],p2:pts[j],i1:i,i2:j});
+        }
+      }
+      i=j;
+    }
+    return segs;
+  }
+
+  // DXF bulge = tan(θ/4), positive = CCW arc.
+  function arcBulge(seg){
+    let theta=seg.ccw?((seg.a2-seg.a1)%360+360)%360:((seg.a1-seg.a2)%360+360)%360;
+    if(theta<1e-4) theta=360;
+    const b=(seg.ccw?1:-1)*Math.tan(theta*Math.PI/720);
+    return isNaN(b)||!isFinite(b)?0:b;
+  }
+
+  // Emit one R12 POLYLINE (geo mode): arcs use DXF bulge; straight sections
+  // use RDP (0.5 ft) so they follow the actual alignment, not a diagonal slash.
   function emitGeoR12(rawPts,layer){
     if(!rawPts||rawPts.length<2) return'';
-    // Convert to canvas feet (Y-up) for RDP
-    const ftPts=rawPts.map(p=>({x:p.x/effectivePpm,y:-p.y/effectivePpm}));
-    const simp=rdp(ftPts,0.5); // 0.5 ft chord tolerance
-    if(simp.length<2) return'';
+    const canvasPts=rawPts.map(p=>({x:p.x/effectivePpm,y:-p.y/effectivePpm}));
+    const segs=pathToSegs(canvasPts);
+    if(!segs.length) return'';
+    const toDxf=cp=>toXY({x:cp.x*effectivePpm,y:-cp.y*effectivePpm});
+    const verts=[];
+    for(const seg of segs){
+      if(seg.t==='L'){
+        // RDP-simplify the sub-array so the line follows the actual path
+        const sub=canvasPts.slice(seg.i1,seg.i2+1);
+        const simp=rdp(sub,0.5);
+        for(let k=0;k<simp.length-1;k++){
+          const xy=toDxf(simp[k]);
+          verts.push({x:xy.x,y:xy.y,b:0});
+        }
+      } else {
+        const b=arcBulge(seg);
+        const xy=toDxf(seg.p1);
+        verts.push({x:xy.x,y:xy.y,b});
+      }
+    }
+    const lastXY=toDxf(segs[segs.length-1].p2);
+    verts.push({x:lastXY.x,y:lastXY.y,b:0});
+    if(verts.length<2) return'';
     let s=`0\nPOLYLINE\n8\n${layer}\n66\n1\n10\n0.0\n20\n0.0\n30\n0.0\n70\n0\n`;
-    for(const p of simp){
-      const xy=toXY({x:p.x*effectivePpm,y:-p.y*effectivePpm});
-      s+=`0\nVERTEX\n8\n${layer}\n10\n${xy.x.toFixed(4)}\n20\n${xy.y.toFixed(4)}\n30\n0.0\n`;
+    for(const v of verts){
+      s+=`0\nVERTEX\n8\n${layer}\n10\n${v.x.toFixed(4)}\n20\n${v.y.toFixed(4)}\n30\n0.0\n`;
+      if(Math.abs(v.b)>1e-10) s+=`42\n${v.b.toFixed(8)}\n`;
     }
     return s+`0\nSEQEND\n8\n${layer}\n`;
   }
@@ -3156,16 +3252,31 @@ async function exportDXF(){
     return s+`0\nSEQEND\n8\n${layer}\n`;
   }
 
-  // Emit one R12 POLYLINE/VERTEX/SEQEND with RDP simplification (non-geo mode).
-  // rawPts are canvas pixels; toXY converts to output feet. Tolerance 0.5 ft.
+  // Emit one R12 POLYLINE (non-geo): arcs use DXF bulge; straight sections
+  // use RDP (0.5 ft) to follow the actual alignment without diagonal slashes.
   function emitR12(rawPts,layer){
     if(!rawPts||rawPts.length<2) return'';
     const ftPts=rawPts.map(p=>toXY(p));
-    const simp=rdp(ftPts,0.5); // 0.5 ft chord tolerance
-    if(simp.length<2) return'';
+    const segs=pathToSegs(ftPts);
+    if(!segs.length) return'';
+    const verts=[];
+    for(const seg of segs){
+      if(seg.t==='L'){
+        const sub=ftPts.slice(seg.i1,seg.i2+1);
+        const simp=rdp(sub,0.5);
+        for(let k=0;k<simp.length-1;k++) verts.push({x:simp[k].x,y:simp[k].y,b:0});
+      } else {
+        const b=arcBulge(seg);
+        verts.push({x:seg.p1.x,y:seg.p1.y,b});
+      }
+    }
+    const last=segs[segs.length-1];
+    verts.push({x:last.p2.x,y:last.p2.y,b:0});
+    if(verts.length<2) return'';
     let s=`0\nPOLYLINE\n8\n${layer}\n66\n1\n10\n0.0\n20\n0.0\n30\n0.0\n70\n0\n`;
-    for(const p of simp){
-      s+=`0\nVERTEX\n8\n${layer}\n10\n${p.x.toFixed(4)}\n20\n${p.y.toFixed(4)}\n30\n0.0\n`;
+    for(const v of verts){
+      s+=`0\nVERTEX\n8\n${layer}\n10\n${v.x.toFixed(4)}\n20\n${v.y.toFixed(4)}\n30\n0.0\n`;
+      if(Math.abs(v.b)>1e-10) s+=`42\n${v.b.toFixed(8)}\n`;
     }
     return s+`0\nSEQEND\n8\n${layer}\n`;
   }

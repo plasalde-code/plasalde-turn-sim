@@ -3053,7 +3053,7 @@ function _utmWKT(zone,northern){
 async function exportDXF(){
   const data=getExportData();
   if(!data){alert('Draw a path with at least 2 points first.');return;}
-  const{pathPts,tracks,env,effectivePpm}=data;
+  const{pathPts,frames,tracks,env,effectivePpm}=data;
 
   const isGeo=S.aerial&&S.leaflet;
   const M2FT=3.28084; // metres → feet conversion factor
@@ -3167,13 +3167,58 @@ async function exportDXF(){
     return isNaN(b)||!isFinite(b)?0:b;
   }
 
-  // Emit one R12 POLYLINE/VERTEX/SEQEND — raw points → exact match with app display.
-  // Each canvas point is converted directly to UTM; no arc-fitting simplification.
+  // Emit one R12 POLYLINE with arc-fitting (canvas-space) → clean straight+radius output.
   function emitGeoR12(rawPts,layer){
     if(!rawPts||rawPts.length<2) return'';
+    // Fit arcs in canvas-relative feet (effectivePpm = px/ft).
+    const canvasPts=rawPts.map(p=>({x:p.x/effectivePpm,y:-p.y/effectivePpm}));
+    const segs=pathToSegs(canvasPts);
+    if(!segs.length) return'';
+    const toDxf=cp=>toXY({x:cp.x*effectivePpm,y:-cp.y*effectivePpm});
+    const verts=[];
+    for(const seg of segs){
+      const b=seg.t==='A'?arcBulge(seg):0;
+      const xy=toDxf(seg.p1);
+      verts.push({x:xy.x,y:xy.y,b});
+    }
+    const lastXY=toDxf(segs[segs.length-1].p2);
+    verts.push({x:lastXY.x,y:lastXY.y,b:0});
     let s=`0\nPOLYLINE\n8\n${layer}\n66\n1\n10\n0.0\n20\n0.0\n30\n0.0\n70\n0\n`;
-    for(const p of rawPts){
-      const xy=toXY(p);
+    for(const v of verts){
+      s+=`0\nVERTEX\n8\n${layer}\n10\n${v.x.toFixed(4)}\n20\n${v.y.toFixed(4)}\n30\n0.0\n`;
+      if(Math.abs(v.b)>1e-10) s+=`42\n${v.b.toFixed(8)}\n`;
+    }
+    return s+`0\nSEQEND\n8\n${layer}\n`;
+  }
+
+  // Compute vehicle body rectangle corners (canvas px) for one frame.
+  // Returns array of box-corner arrays: 1 box for rigid, 2 for semitrailer.
+  function getFrameBoxes(frame){
+    const HW=(S.vehicle.W/2)*effectivePpm,Fo=S.vehicle.Fo*effectivePpm;
+    const Ro=S.vehicle.Ro*effectivePpm,Fwd=(S.vehicle.Fwd||0)*effectivePpm;
+    const dir=vnorm(vsub(frame.frontAxle,frame.pivotAxle));
+    const lft=vleft(dir);
+    const fb=vadd(frame.frontAxle,vscl(dir,Fo));
+    if(!frame.trailAxle){
+      const rb=vsub(frame.pivotAxle,vscl(dir,Ro));
+      return[[vadd(fb,vscl(lft,HW)),vadd(fb,vscl(lft,-HW)),vadd(rb,vscl(lft,-HW)),vadd(rb,vscl(lft,HW))]];
+    }
+    const tractorRear=frame.pivotAxle;
+    const d2=vnorm(vsub(frame.pivotAxle,frame.trailAxle));
+    const l2=vleft(d2);
+    const tf=vadd(frame.pivotAxle,vscl(d2,Fwd));
+    const rb=vsub(frame.trailAxle,vscl(d2,Ro));
+    return[
+      [vadd(fb,vscl(lft,HW)),vadd(fb,vscl(lft,-HW)),vadd(tractorRear,vscl(lft,-HW)),vadd(tractorRear,vscl(lft,HW))],
+      [vadd(tf,vscl(l2,HW)),vadd(tf,vscl(l2,-HW)),vadd(rb,vscl(l2,-HW)),vadd(rb,vscl(l2,HW))]
+    ];
+  }
+
+  // Emit a closed box polyline (4 corners, canvas px → output coords via toXY).
+  function emitBox(corners,layer){
+    let s=`0\nPOLYLINE\n8\n${layer}\n66\n1\n10\n0.0\n20\n0.0\n30\n0.0\n70\n1\n`; // 70=1 = closed
+    for(const c of corners){
+      const xy=toXY(c);
       s+=`0\nVERTEX\n8\n${layer}\n10\n${xy.x.toFixed(4)}\n20\n${xy.y.toFixed(4)}\n30\n0.0\n`;
     }
     return s+`0\nSEQEND\n8\n${layer}\n`;
@@ -3217,7 +3262,9 @@ async function exportDXF(){
     d+=emitR12(tracks.fL,'WHEEL-PATHS')+emitR12(tracks.fR,'WHEEL-PATHS');
     d+=emitR12(tracks.p1L,'WHEEL-PATHS')+emitR12(tracks.p1R,'WHEEL-PATHS');
     if(hasTrailer) d+=emitR12(tracks.tL,'WHEEL-PATHS')+emitR12(tracks.tR,'WHEEL-PATHS');
-    d+=emitR12(env.leftB,'VEHICLE-OUTLINE')+emitR12(env.rightB,'VEHICLE-OUTLINE');
+    // Vehicle body box outlines at key positions (start, arc midpoints, end)
+    for(const f of getBodyDisplayFrames(pathPts,frames))
+      for(const box of getFrameBoxes(f)) d+=emitBox(box,'VEHICLE-OUTLINE');
     d+='0\nENDSEC\n0\nEOF\n';
     const blob=new Blob([d],{type:'text/plain'});
     const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`${stem}.dxf`; a.click();
@@ -3254,7 +3301,9 @@ async function exportDXF(){
   d+=emitGeoR12(tracks.fL,'WHEEL-PATHS')+emitGeoR12(tracks.fR,'WHEEL-PATHS');
   d+=emitGeoR12(tracks.p1L,'WHEEL-PATHS')+emitGeoR12(tracks.p1R,'WHEEL-PATHS');
   if(hasTrailer) d+=emitGeoR12(tracks.tL,'WHEEL-PATHS')+emitGeoR12(tracks.tR,'WHEEL-PATHS');
-  d+=emitGeoR12(env.leftB,'VEHICLE-OUTLINE')+emitGeoR12(env.rightB,'VEHICLE-OUTLINE');
+  // Vehicle body box outlines at key positions (start, arc midpoints, end)
+  for(const f of getBodyDisplayFrames(pathPts,frames))
+    for(const box of getFrameBoxes(f)) d+=emitBox(box,'VEHICLE-OUTLINE');
   d+='0\nENDSEC\n0\nEOF\n';
 
   // ── Bundle into ZIP ──────────────────────────────────────────────────

@@ -3267,17 +3267,19 @@ async function exportDXF(){
     zip.file('aerial.png',pngBlob);
     zip.file('aerial.pgw',_calcWorldFile(S.leaflet)); // world file for GIS tools
   }
+  const _ns=ctrUTM.northern?'N':'S';
+  const _epsg=ctrUTM.northern?32600+ctrUTM.zone:32700+ctrUTM.zone;
   const readme=
-    `Coordinate System: WGS 84 / UTM Zone ${ctrUTM.zone}${ns} (EPSG:${epsg})\n\n`+
+    `Coordinate System: WGS 84 / UTM Zone ${ctrUTM.zone}${_ns} (EPSG:${_epsg}) — coordinates in US Survey Feet\n\n`+
     `Files:\n`+
-    `  ${stem}.dxf  — vehicle turn paths with embedded aerial image reference\n`+
+    `  ${stem}.dxf  — vehicle turn paths\n`+
     (mapCanvas?`  aerial.png   — captured satellite imagery\n  aerial.pgw   — PNG world file (for GIS tools)\n`:'')+
     `\nHow to open (NanoCAD / AutoCAD):\n`+
     `  1. Extract ALL files to the same folder\n`+
-    `  2. Open ${stem}.dxf from that folder\n`+
-    (mapCanvas?`  3. To attach the aerial image in AutoCAD/NanoCAD:\n     - Command: IMAGEATTACH → select aerial.png → OK\n     - The .pgw world file will georeference it automatically\n`:`  3. No aerial captured\n`)+
-    `\nCoordinate system: UTM Zone ${ctrUTM.zone}${ns} (EPSG:${epsg})\n`+
-    `After opening, type ZE (Zoom Extents) if the drawing appears blank.`;
+    `  2. Open ${stem}.dxf — type ZE (Zoom Extents) if blank\n`+
+    (mapCanvas?`  3. Aerial: IMAGEATTACH → select aerial.png → OK\n`:`  3. No aerial captured\n`)+
+    `\nLayers: CENTERLINE, FRONT-WHEEL, REAR-AXLE, SWEPT-ENV${tracks.tL&&tracks.tL.length?', TRAILER-AXLE':''}`;
+
   zip.file('README.txt',readme);
   const zipBlob=await zip.generateAsync({type:'blob',compression:'DEFLATE'});
   const a=document.createElement('a');

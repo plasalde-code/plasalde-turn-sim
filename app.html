@@ -3102,18 +3102,10 @@ async function exportDXF(){
     return[pts[0],pts[last]];
   }
 
-  // Circle through 3 non-collinear points. Returns {cx,cy,r} or null.
-  function circle3pt(a,b,c){
-    const ax=b.x-a.x,ay=b.y-a.y,bx=c.x-a.x,by=c.y-a.y;
-    const D=2*(ax*by-ay*bx);
-    if(Math.abs(D)<1e-10) return null;
-    const ux=(by*(ax*ax+ay*ay)-ay*(bx*bx+by*by))/D;
-    const uy=(ax*(bx*bx+by*by)-bx*(ax*ax+ay*ay))/D;
-    return{cx:a.x+ux,cy:a.y+uy,r:Math.sqrt(ux*ux+uy*uy)};
-  }
-
-  // Classify path into {t:'L'|'A', p1, p2, i1, i2, [ccw,a1,a2]} segments.
-  // i1/i2 are indices into pts so LINE sections can be RDP-sub-sampled.
+  // Classify path into segments with index info.
+  // Arc bulge is computed from the ACTUAL accumulated direction change (ud[j-1]-ud[i])
+  // — not from circle-fitting — so the radius in CAD exactly matches the simulation.
+  // Straight sections store i1/i2 for RDP sub-sampling.
   function pathToSegs(pts){
     if(!pts||pts.length<2) return[];
     const n=pts.length;
@@ -3128,6 +3120,7 @@ async function exportDXF(){
     const totalLen=s[n-1];
     if(totalLen<1e-10) return[{t:'L',p1:pts[0],p2:pts[n-1],i1:0,i2:n-1}];
 
+    // Unwrap direction (no smoothing) — used directly for bulge calculation.
     const ud=[dir[0]];
     for(let i=1;i<dir.length;i++){
       let d=dir[i]-ud[i-1];
@@ -3140,6 +3133,7 @@ async function exportDXF(){
       for(let j=Math.max(0,i-hw);j<=Math.min(v.length-1,i+hw);j++){sum+=v[j];cnt++;}
       return sum/cnt;
     });
+    // Smoothed direction for curvature detection only
     const sd=sm(ud);
     const k=ud.map((_,i)=>{
       if(i===0||i===ud.length-1) return 0;
@@ -3159,14 +3153,14 @@ async function exportDXF(){
       if(type){
         segs.push({t:'L',p1:pts[i],p2:pts[j],i1:i,i2:j});
       } else {
-        const mid=Math.floor((i+j)/2);
-        const c=circle3pt(pts[i],pts[mid],pts[j]);
-        if(c&&c.r>0.01&&c.r<5e4&&!isNaN(c.cx)){
-          const v1x=pts[Math.min(i+1,n-1)].x-pts[i].x,v1y=pts[Math.min(i+1,n-1)].y-pts[i].y;
-          const ccw=(pts[i].x-c.cx)*v1y-(pts[i].y-c.cy)*v1x>0;
-          const a1=Math.atan2(pts[i].y-c.cy,pts[i].x-c.cx)*180/Math.PI;
-          const a2=Math.atan2(pts[j].y-c.cy,pts[j].x-c.cx)*180/Math.PI;
-          segs.push({t:'A',p1:pts[i],p2:pts[j],ccw,a1,a2,i1:i,i2:j});
+        // Bulge = tan(θ/4) where θ = total heading change from p1 to p2.
+        // Using unwrapped direction ud directly gives the exact arc angle
+        // the simulation used, so AutoCAD measures the same radius as the app.
+        const jDir=Math.min(j-1,ud.length-1);
+        const pathAngle=ud[jDir]-ud[i]; // radians, sign: + CCW, - CW
+        const bulge=Math.tan(pathAngle/4);
+        if(!isNaN(bulge)&&isFinite(bulge)&&Math.abs(bulge)<100){
+          segs.push({t:'A',p1:pts[i],p2:pts[j],i1:i,i2:j,bulge});
         } else {
           segs.push({t:'L',p1:pts[i],p2:pts[j],i1:i,i2:j});
         }
@@ -3176,16 +3170,8 @@ async function exportDXF(){
     return segs;
   }
 
-  // DXF bulge = tan(θ/4), positive = CCW arc.
-  function arcBulge(seg){
-    let theta=seg.ccw?((seg.a2-seg.a1)%360+360)%360:((seg.a1-seg.a2)%360+360)%360;
-    if(theta<1e-4) theta=360;
-    const b=(seg.ccw?1:-1)*Math.tan(theta*Math.PI/720);
-    return isNaN(b)||!isFinite(b)?0:b;
-  }
-
-  // Emit one R12 POLYLINE (geo mode): arcs use DXF bulge; straight sections
-  // use RDP (0.5 ft) so they follow the actual alignment, not a diagonal slash.
+  // Emit one R12 POLYLINE (geo mode): arcs use direction-change bulge;
+  // straight sections use RDP (0.5 ft) to avoid diagonal slashes.
   function emitGeoR12(rawPts,layer){
     if(!rawPts||rawPts.length<2) return'';
     const canvasPts=rawPts.map(p=>({x:p.x/effectivePpm,y:-p.y/effectivePpm}));
@@ -3195,7 +3181,6 @@ async function exportDXF(){
     const verts=[];
     for(const seg of segs){
       if(seg.t==='L'){
-        // RDP-simplify the sub-array so the line follows the actual path
         const sub=canvasPts.slice(seg.i1,seg.i2+1);
         const simp=rdp(sub,0.5);
         for(let k=0;k<simp.length-1;k++){
@@ -3203,9 +3188,8 @@ async function exportDXF(){
           verts.push({x:xy.x,y:xy.y,b:0});
         }
       } else {
-        const b=arcBulge(seg);
         const xy=toDxf(seg.p1);
-        verts.push({x:xy.x,y:xy.y,b});
+        verts.push({x:xy.x,y:xy.y,b:seg.bulge});
       }
     }
     const lastXY=toDxf(segs[segs.length-1].p2);
@@ -3266,8 +3250,7 @@ async function exportDXF(){
         const simp=rdp(sub,0.5);
         for(let k=0;k<simp.length-1;k++) verts.push({x:simp[k].x,y:simp[k].y,b:0});
       } else {
-        const b=arcBulge(seg);
-        verts.push({x:seg.p1.x,y:seg.p1.y,b});
+        verts.push({x:seg.p1.x,y:seg.p1.y,b:seg.bulge});
       }
     }
     const last=segs[segs.length-1];

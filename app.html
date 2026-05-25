@@ -3078,115 +3078,47 @@ async function exportDXF(){
   const _sz=isGeo?S.leaflet.getSize():{x:800,y:600};
   const _dxfW=_sz.x/effectivePpm, _dxfH=_sz.y/effectivePpm;
 
-  // ── Arc / Line path fitting ───────────────────────────────────────────
-  // Direction-based curvature analysis classifies the path into straight and
-  // arc sections. Output uses LWPOLYLINE with DXF bulge values (group 42):
-  //   bulge = 0        → straight segment to next vertex
-  //   bulge = ±tan(θ/4) → arc to next vertex, sign = CCW(+) / CW(-)
-  // This gives one clean polyline entity per path with proper arc geometry,
-  // fully compatible with AutoCAD and NanoCAD.
-
-  // Circle through 3 non-collinear points. Returns {cx,cy,r} or null.
-  function circle3pt(a,b,c){
-    const ax=b.x-a.x,ay=b.y-a.y,bx=c.x-a.x,by=c.y-a.y;
-    const D=2*(ax*by-ay*bx);
-    if(Math.abs(D)<1e-10) return null;
-    const ux=(by*(ax*ax+ay*ay)-ay*(bx*bx+by*by))/D;
-    const uy=(ax*(bx*bx+by*by)-bx*(ax*ax+ay*ay))/D;
-    return{cx:a.x+ux,cy:a.y+uy,r:Math.sqrt(ux*ux+uy*uy)};
+  // ── Path simplification ───────────────────────────────────────────────
+  // Ramer-Douglas-Peucker: reduces point count while preserving path shape.
+  // eps = max allowed chord deviation (same units as pts.x / pts.y).
+  // This avoids the diagonal-slash problem that arc-fitting causes on long
+  // paths: arc-fitting jumped from segment start to end as a straight line,
+  // cutting across the drawing when the path had gradual curvature.
+  // RDP keeps enough points so every retained straight segment stays within
+  // eps of the original curve.
+  function rdp(pts,eps){
+    if(pts.length<=2) return pts;
+    const last=pts.length-1;
+    const dx=pts[last].x-pts[0].x, dy=pts[last].y-pts[0].y;
+    const len=Math.sqrt(dx*dx+dy*dy);
+    let maxD=0, maxI=0;
+    for(let i=1;i<last;i++){
+      const d=len<1e-10
+        ? Math.hypot(pts[i].x-pts[0].x,pts[i].y-pts[0].y)
+        : Math.abs(dy*pts[i].x-dx*pts[i].y+pts[last].x*pts[0].y-pts[last].y*pts[0].x)/len;
+      if(d>maxD){maxD=d;maxI=i;}
+    }
+    if(maxD>eps){
+      const L=rdp(pts.slice(0,maxI+1),eps);
+      const R=rdp(pts.slice(maxI),eps);
+      return[...L.slice(0,-1),...R];
+    }
+    return[pts[0],pts[last]];
   }
 
-  // Analyse curvature and return segments: {t:'L',p1,p2} or {t:'A',p1,p2,ccw,a1deg,a2deg}
-  function pathToSegs(pts){
-    if(!pts||pts.length<2) return[];
-    const n=pts.length;
-    if(n===2) return[{t:'L',p1:pts[0],p2:pts[1]}];
-
-    const s=[0],dir=[];
-    for(let i=0;i<n-1;i++){
-      const dx=pts[i+1].x-pts[i].x,dy=pts[i+1].y-pts[i].y;
-      dir.push(Math.atan2(dy,dx));
-      s.push(s[i]+Math.sqrt(dx*dx+dy*dy));
-    }
-    const totalLen=s[n-1];
-    if(totalLen<1e-10) return[{t:'L',p1:pts[0],p2:pts[n-1]}];
-
-    const ud=[dir[0]];
-    for(let i=1;i<dir.length;i++){
-      let d=dir[i]-ud[i-1];
-      while(d>Math.PI)d-=2*Math.PI; while(d<-Math.PI)d+=2*Math.PI;
-      ud.push(ud[i-1]+d);
-    }
-    const hw=Math.max(2,Math.min(12,Math.round(n/totalLen)));
-    const sm=v=>v.map((_,i)=>{
-      let sum=0,cnt=0;
-      for(let j=Math.max(0,i-hw);j<=Math.min(v.length-1,i+hw);j++){sum+=v[j];cnt++;}
-      return sum/cnt;
-    });
-    const sd=sm(ud);
-    const k=ud.map((_,i)=>{
-      if(i===0||i===ud.length-1) return 0;
-      const ds=s[i+2]-s[i];
-      return ds>1e-10?(sd[i+1]-sd[i-1])/ds:0;
-    });
-    const sk=sm(k);
-    const kThr=0.02; // 0.02 rad/m → radius > 50 m treated as straight
-    const isSt=pts.map((_,i)=>Math.abs(sk[Math.min(i,sk.length-1)])<kThr);
-
-    const segs=[];
-    let i=0;
-    while(i<n-1){
-      const type=isSt[i];
-      let j=i+1;
-      while(j<n-1&&isSt[j]===type) j++;
-      if(type){
-        segs.push({t:'L',p1:pts[i],p2:pts[j]});
-      } else {
-        const mid=Math.floor((i+j)/2);
-        const c=circle3pt(pts[i],pts[mid],pts[j]);
-        if(c&&c.r>0.01&&c.r<5e4&&!isNaN(c.cx)){
-          const v1x=pts[Math.min(i+1,n-1)].x-pts[i].x,v1y=pts[Math.min(i+1,n-1)].y-pts[i].y;
-          const ccw=(pts[i].x-c.cx)*v1y-(pts[i].y-c.cy)*v1x>0;
-          const a1=Math.atan2(pts[i].y-c.cy,pts[i].x-c.cx)*180/Math.PI;
-          const a2=Math.atan2(pts[j].y-c.cy,pts[j].x-c.cx)*180/Math.PI;
-          segs.push({t:'A',p1:pts[i],p2:pts[j],ccw,a1,a2});
-        } else {
-          segs.push({t:'L',p1:pts[i],p2:pts[j]});
-        }
-      }
-      i=j;
-    }
-    return segs;
-  }
-
-  // Compute DXF bulge for an arc segment. bulge=tan(θ/4), +CCW / -CW.
-  function arcBulge(seg){
-    let theta=seg.ccw?((seg.a2-seg.a1)%360+360)%360:((seg.a1-seg.a2)%360+360)%360;
-    if(theta<1e-4) theta=360;
-    const b=(seg.ccw?1:-1)*Math.tan(theta*Math.PI/720);
-    return isNaN(b)||!isFinite(b)?0:b;
-  }
-
-  // Emit one R12 POLYLINE with arc-fitting (canvas-space) → clean straight+radius output.
+  // Emit one R12 POLYLINE with RDP simplification (geo mode).
+  // Converts canvas px → canvas feet → DXF coords via toXY.
+  // Tolerance 0.5 ft keeps path accurate while removing redundant points.
   function emitGeoR12(rawPts,layer){
     if(!rawPts||rawPts.length<2) return'';
-    // Fit arcs in canvas-relative feet (effectivePpm = px/ft).
-    const canvasPts=rawPts.map(p=>({x:p.x/effectivePpm,y:-p.y/effectivePpm}));
-    const segs=pathToSegs(canvasPts);
-    if(!segs.length) return'';
-    const toDxf=cp=>toXY({x:cp.x*effectivePpm,y:-cp.y*effectivePpm});
-    const verts=[];
-    for(const seg of segs){
-      const b=seg.t==='A'?arcBulge(seg):0;
-      const xy=toDxf(seg.p1);
-      verts.push({x:xy.x,y:xy.y,b});
-    }
-    const lastXY=toDxf(segs[segs.length-1].p2);
-    verts.push({x:lastXY.x,y:lastXY.y,b:0});
+    // Convert to canvas feet (Y-up) for RDP
+    const ftPts=rawPts.map(p=>({x:p.x/effectivePpm,y:-p.y/effectivePpm}));
+    const simp=rdp(ftPts,0.5); // 0.5 ft chord tolerance
+    if(simp.length<2) return'';
     let s=`0\nPOLYLINE\n8\n${layer}\n66\n1\n10\n0.0\n20\n0.0\n30\n0.0\n70\n0\n`;
-    for(const v of verts){
-      s+=`0\nVERTEX\n8\n${layer}\n10\n${v.x.toFixed(4)}\n20\n${v.y.toFixed(4)}\n30\n0.0\n`;
-      if(Math.abs(v.b)>1e-10) s+=`42\n${v.b.toFixed(8)}\n`;
+    for(const p of simp){
+      const xy=toXY({x:p.x*effectivePpm,y:-p.y*effectivePpm});
+      s+=`0\nVERTEX\n8\n${layer}\n10\n${xy.x.toFixed(4)}\n20\n${xy.y.toFixed(4)}\n30\n0.0\n`;
     }
     return s+`0\nSEQEND\n8\n${layer}\n`;
   }
@@ -3224,24 +3156,29 @@ async function exportDXF(){
     return s+`0\nSEQEND\n8\n${layer}\n`;
   }
 
-  // Emit one R12 POLYLINE/VERTEX/SEQEND with bulge-encoded arcs (non-geo mode).
+  // Emit one R12 POLYLINE/VERTEX/SEQEND with RDP simplification (non-geo mode).
+  // rawPts are canvas pixels; toXY converts to output feet. Tolerance 0.5 ft.
   function emitR12(rawPts,layer){
     if(!rawPts||rawPts.length<2) return'';
-    const segs=pathToSegs(rawPts.map(p=>toXY(p)));
-    if(!segs.length) return'';
-    const verts=[];
-    for(const seg of segs){
-      const b=seg.t==='A'?arcBulge(seg):0;
-      verts.push({x:seg.p1.x,y:seg.p1.y,b});
-    }
-    const last=segs[segs.length-1];
-    verts.push({x:last.p2.x,y:last.p2.y,b:0});
+    const ftPts=rawPts.map(p=>toXY(p));
+    const simp=rdp(ftPts,0.5); // 0.5 ft chord tolerance
+    if(simp.length<2) return'';
     let s=`0\nPOLYLINE\n8\n${layer}\n66\n1\n10\n0.0\n20\n0.0\n30\n0.0\n70\n0\n`;
-    for(const v of verts){
-      s+=`0\nVERTEX\n8\n${layer}\n10\n${v.x.toFixed(4)}\n20\n${v.y.toFixed(4)}\n30\n0.0\n`;
-      if(Math.abs(v.b)>1e-10) s+=`42\n${v.b.toFixed(8)}\n`;
+    for(const p of simp){
+      s+=`0\nVERTEX\n8\n${layer}\n10\n${p.x.toFixed(4)}\n20\n${p.y.toFixed(4)}\n30\n0.0\n`;
     }
     return s+`0\nSEQEND\n8\n${layer}\n`;
+  }
+
+  // Cap vehicle body box positions to avoid dense dotted appearance on long paths.
+  // Always keeps first and last; evenly sub-samples the middle.
+  function sampleFrames(frames,maxCount){
+    if(frames.length<=maxCount) return frames;
+    const result=[frames[0]];
+    const step=(frames.length-1)/(maxCount-1);
+    for(let i=1;i<maxCount-1;i++) result.push(frames[Math.round(i*step)]);
+    result.push(frames[frames.length-1]);
+    return result;
   }
 
   const stem=`turn-${S.vehicle.code}-${Date.now()}`;
@@ -3262,8 +3199,8 @@ async function exportDXF(){
     d+=emitR12(tracks.fL,'WHEEL-PATHS')+emitR12(tracks.fR,'WHEEL-PATHS');
     d+=emitR12(tracks.p1L,'WHEEL-PATHS')+emitR12(tracks.p1R,'WHEEL-PATHS');
     if(hasTrailer) d+=emitR12(tracks.tL,'WHEEL-PATHS')+emitR12(tracks.tR,'WHEEL-PATHS');
-    // Vehicle body box outlines at key positions (start, arc midpoints, end)
-    for(const f of getBodyDisplayFrames(pathPts,frames))
+    // Vehicle body box outlines — capped at 8 to avoid dense dotted appearance
+    for(const f of sampleFrames(getBodyDisplayFrames(pathPts,frames),8))
       for(const box of getFrameBoxes(f)) d+=emitBox(box,'VEHICLE-OUTLINE');
     d+='0\nENDSEC\n0\nEOF\n';
     const blob=new Blob([d],{type:'text/plain'});
@@ -3301,8 +3238,8 @@ async function exportDXF(){
   d+=emitGeoR12(tracks.fL,'WHEEL-PATHS')+emitGeoR12(tracks.fR,'WHEEL-PATHS');
   d+=emitGeoR12(tracks.p1L,'WHEEL-PATHS')+emitGeoR12(tracks.p1R,'WHEEL-PATHS');
   if(hasTrailer) d+=emitGeoR12(tracks.tL,'WHEEL-PATHS')+emitGeoR12(tracks.tR,'WHEEL-PATHS');
-  // Vehicle body box outlines at key positions (start, arc midpoints, end)
-  for(const f of getBodyDisplayFrames(pathPts,frames))
+  // Vehicle body box outlines — capped at 8 to avoid dense dotted appearance
+  for(const f of sampleFrames(getBodyDisplayFrames(pathPts,frames),8))
     for(const box of getFrameBoxes(f)) d+=emitBox(box,'VEHICLE-OUTLINE');
   d+='0\nENDSEC\n0\nEOF\n';
 

@@ -3153,17 +3153,32 @@ async function exportDXF(){
       if(type){
         segs.push({t:'L',p1:pts[i],p2:pts[j],i1:i,i2:j});
       } else {
-        // Bulge = tan(θ/4) where θ = total heading change from p1 to p2.
-        // Using unwrapped direction ud directly gives the exact arc angle
-        // the simulation used, so AutoCAD measures the same radius as the app.
+        // Compute true arc radius R = arc_length / |heading_change|.
+        // Transition zones increase the average R above Rmin, so R >= Rmin —
+        // this is why the old heading-change bulge gave ~36 ft (tighter than 45 ft):
+        // the heading change included transition zones while the chord was shorter.
+        // Using R from arc_length/angle and re-deriving theta from chord+R
+        // gives the correct radius that matches the simulation.
+        const arcLen=s[j]-s[i]; // canvas feet
         const jDir=Math.min(j-1,ud.length-1);
-        const pathAngle=ud[jDir]-ud[i]; // radians, sign: + CCW, - CW
-        const bulge=Math.tan(pathAngle/4);
-        if(!isNaN(bulge)&&isFinite(bulge)&&Math.abs(bulge)<100){
-          segs.push({t:'A',p1:pts[i],p2:pts[j],i1:i,i2:j,bulge});
-        } else {
-          segs.push({t:'L',p1:pts[i],p2:pts[j],i1:i,i2:j});
+        const totalAngle=ud[jDir]-ud[i]; // rad: + CCW, - CW
+        let arcPushed=false;
+        if(Math.abs(totalAngle)>0.01&&arcLen>0.1){
+          const R=arcLen/Math.abs(totalAngle); // true avg radius (canvas ft)
+          const dx=pts[j].x-pts[i].x,dy=pts[j].y-pts[i].y;
+          const chord=Math.sqrt(dx*dx+dy*dy);
+          const sinHalf=chord/(2*R);
+          if(sinHalf<0.9999){
+            const sign=totalAngle>0?1:-1;
+            const theta=sign*2*Math.asin(sinHalf);
+            const bulge=Math.tan(theta/4);
+            if(!isNaN(bulge)&&isFinite(bulge)&&Math.abs(bulge)<100){
+              segs.push({t:'A',p1:pts[i],p2:pts[j],i1:i,i2:j,bulge});
+              arcPushed=true;
+            }
+          }
         }
+        if(!arcPushed) segs.push({t:'L',p1:pts[i],p2:pts[j],i1:i,i2:j});
       }
       i=j;
     }
@@ -3171,21 +3186,35 @@ async function exportDXF(){
   }
 
   // Emit one R12 POLYLINE (geo mode).
-  // ALL sections (straight AND curved) use RDP sub-sampling so the exported
-  // polyline follows the exact simulation path points. A synthetic bulge arc
-  // fits a circle between two detected endpoints, but transition zones cause
-  // the implied radius to be tighter than the simulation's Rmin — making
-  // third-party turn-check tools (CadTools, etc.) fail on paths that should
-  // be valid. RDP with 0.2 ft tolerance preserves the true path faithfully.
+  // Arc sections → single DXF bulge vertex with R = arc_length/heading_change.
+  // Straight sections → RDP sub-sampled (0.5 ft) to follow actual alignment.
   function emitGeoR12(rawPts,layer){
     if(!rawPts||rawPts.length<2) return'';
     const canvasPts=rawPts.map(p=>({x:p.x/effectivePpm,y:-p.y/effectivePpm}));
-    const simp=rdp(canvasPts,0.2); // 0.2 ft — tight enough to preserve true radius
-    if(simp.length<2) return'';
+    const segs=pathToSegs(canvasPts);
+    if(!segs.length) return'';
+    const toDxf=cp=>toXY({x:cp.x*effectivePpm,y:-cp.y*effectivePpm});
+    const verts=[];
+    for(const seg of segs){
+      if(seg.t==='L'){
+        const sub=canvasPts.slice(seg.i1,seg.i2+1);
+        const simp=rdp(sub,0.5);
+        for(let k=0;k<simp.length-1;k++){
+          const xy=toDxf(simp[k]);
+          verts.push({x:xy.x,y:xy.y,b:0});
+        }
+      } else {
+        const xy=toDxf(seg.p1);
+        verts.push({x:xy.x,y:xy.y,b:seg.bulge});
+      }
+    }
+    const lastXY=toDxf(segs[segs.length-1].p2);
+    verts.push({x:lastXY.x,y:lastXY.y,b:0});
+    if(verts.length<2) return'';
     let s=`0\nPOLYLINE\n8\n${layer}\n66\n1\n10\n0.0\n20\n0.0\n30\n0.0\n70\n0\n`;
-    for(const p of simp){
-      const xy=toXY({x:p.x*effectivePpm,y:-p.y*effectivePpm});
-      s+=`0\nVERTEX\n8\n${layer}\n10\n${xy.x.toFixed(4)}\n20\n${xy.y.toFixed(4)}\n30\n0.0\n`;
+    for(const v of verts){
+      s+=`0\nVERTEX\n8\n${layer}\n10\n${v.x.toFixed(4)}\n20\n${v.y.toFixed(4)}\n30\n0.0\n`;
+      if(Math.abs(v.b)>1e-10) s+=`42\n${v.b.toFixed(8)}\n`;
     }
     return s+`0\nSEQEND\n8\n${layer}\n`;
   }
@@ -3223,14 +3252,24 @@ async function exportDXF(){
     return s+`0\nSEQEND\n8\n${layer}\n`;
   }
 
-  // Emit one R12 POLYLINE (non-geo): RDP-simplified actual path points (0.2 ft).
-  // Same rationale as emitGeoR12 — no synthetic arc bulge to avoid radius distortion.
+  // Emit one R12 POLYLINE (non-geo): arc bulge + RDP straight sections.
   function emitR12(rawPts,layer){
     if(!rawPts||rawPts.length<2) return'';
     const ftPts=rawPts.map(p=>toXY(p));
-    const simp=rdp(ftPts,0.2);
-    if(simp.length<2) return'';
-    const verts=simp.map(p=>({x:p.x,y:p.y,b:0}));
+    const segs=pathToSegs(ftPts);
+    if(!segs.length) return'';
+    const verts=[];
+    for(const seg of segs){
+      if(seg.t==='L'){
+        const sub=ftPts.slice(seg.i1,seg.i2+1);
+        const simp=rdp(sub,0.5);
+        for(let k=0;k<simp.length-1;k++) verts.push({x:simp[k].x,y:simp[k].y,b:0});
+      } else {
+        verts.push({x:seg.p1.x,y:seg.p1.y,b:seg.bulge});
+      }
+    }
+    const last=segs[segs.length-1];
+    verts.push({x:last.p2.x,y:last.p2.y,b:0});
     if(verts.length<2) return'';
     let s=`0\nPOLYLINE\n8\n${layer}\n66\n1\n10\n0.0\n20\n0.0\n30\n0.0\n70\n0\n`;
     for(const v of verts){

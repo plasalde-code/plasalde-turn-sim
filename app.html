@@ -259,7 +259,7 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#111827;color:#e5
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       PNG
     </button>
-    <button class="hbtn" onclick="exportDXF()" title="Export path and tracks as DXF (AutoCAD)">
+    <button class="hbtn" onclick="showDxfDialog()" title="Export path and tracks as DXF (AutoCAD)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       DXF
     </button>
@@ -3050,6 +3050,65 @@ function _utmWKT(zone,northern){
     +`PARAMETER["false_northing",${fn}],UNIT["metre",1],AUTHORITY["EPSG","${epsg}"]]`;
 }
 
+// ── Lambert Conformal Conic projection (NAD83 / GRS80 ellipsoid) ──────────────
+// Returns {easting, northing} in US Survey Feet.
+// p = {lat0, sp1, sp2, cm, fe, fn} — all angles in decimal degrees, fe/fn in metres.
+function _lccProject(lat,lng,p){
+  const a=6378137.0,e2=0.00669438002290,e=Math.sqrt(e2),DR=Math.PI/180;
+  const phi=lat*DR,lam=lng*DR,phi0=p.lat0*DR,phi1=p.sp1*DR,phi2=p.sp2*DR,lam0=p.cm*DR;
+  const mf=f=>{const s=Math.sin(f);return Math.cos(f)/Math.sqrt(1-e2*s*s);};
+  const tf=f=>{const s=Math.sin(f);return Math.tan(Math.PI/4-f/2)/Math.pow((1-e*s)/(1+e*s),e/2);};
+  const m1=mf(phi1),m2=mf(phi2),t0=tf(phi0),t1=tf(phi1),t2=tf(phi2),tPhi=tf(phi);
+  const n=Math.log(m1/m2)/Math.log(t1/t2);
+  const F=m1/(n*Math.pow(t1,n));
+  const rho0=a*F*Math.pow(t0,n),rho=a*F*Math.pow(tPhi,n),theta=n*(lam-lam0);
+  const USFT=3937/1200; // metres → US Survey Feet
+  return{easting:(p.fe+rho*Math.sin(theta))*USFT,
+         northing:(p.fn+rho0-rho*Math.cos(theta))*USFT};
+}
+
+// ── Coordinate system list ─────────────────────────────────────────────────────
+// proj:'lcc' = Lambert Conformal Conic (most US state planes)
+// fe/fn in metres (converted to US Survey Feet inside _lccProject)
+const CRS_LIST=[
+  {id:'utm',     label:'UTM – Global (auto zone)', proj:null},
+  // ── Florida ──────────────────────────────────────────────────
+  {id:'fl-e',    label:'Florida East   (FIPS 0901)',proj:'lcc',lat0:24+20/60,sp1:24+20/60,sp2:26+40/60,cm:-81,       fe:200000,  fn:0},
+  {id:'fl-w',    label:'Florida West   (FIPS 0902)',proj:'lcc',lat0:24+20/60,sp1:24+20/60,sp2:26+40/60,cm:-82,       fe:200000,  fn:0},
+  {id:'fl-n',    label:'Florida North  (FIPS 0903)',proj:'lcc',lat0:29,      sp1:29+35/60,sp2:30+45/60,cm:-84.5,     fe:600000,  fn:0},
+  // ── Georgia ───────────────────────────────────────────────────
+  {id:'ga-e',    label:'Georgia East   (FIPS 1001)',proj:'lcc',lat0:30,      sp1:31,      sp2:32,      cm:-82+10/60, fe:200000,  fn:0},
+  {id:'ga-w',    label:'Georgia West   (FIPS 1002)',proj:'lcc',lat0:30,      sp1:30,      sp2:31+50/60,cm:-84+10/60, fe:700000,  fn:0},
+  // ── North/South Carolina ──────────────────────────────────────
+  {id:'nc',      label:'North Carolina (FIPS 3200)',proj:'lcc',lat0:33+45/60,sp1:34+20/60,sp2:36+10/60,cm:-79,       fe:609601.22,fn:0},
+  {id:'sc',      label:'South Carolina (FIPS 3900)',proj:'lcc',lat0:31+50/60,sp1:32+30/60,sp2:34+50/60,cm:-81,       fe:609600,  fn:0},
+  // ── Texas ─────────────────────────────────────────────────────
+  {id:'tx-n',    label:'Texas North    (FIPS 4201)',proj:'lcc',lat0:34,      sp1:34+39/60,sp2:36+11/60,cm:-101+30/60,fe:200000,  fn:1000000},
+  {id:'tx-nc',   label:'Texas N.Cntrl  (FIPS 4202)',proj:'lcc',lat0:31+40/60,sp1:32+8/60, sp2:33+58/60,cm:-98.5,     fe:600000,  fn:2000000},
+  {id:'tx-c',    label:'Texas Central  (FIPS 4203)',proj:'lcc',lat0:29+40/60,sp1:30+7/60, sp2:31+53/60,cm:-(100+20/60),fe:700000, fn:3000000},
+  {id:'tx-sc',   label:'Texas S.Cntrl  (FIPS 4204)',proj:'lcc',lat0:27+50/60,sp1:28+23/60,sp2:30+17/60,cm:-99,       fe:600000,  fn:4000000},
+  {id:'tx-s',    label:'Texas South    (FIPS 4205)',proj:'lcc',lat0:25+40/60,sp1:26+10/60,sp2:27+50/60,cm:-98+30/60, fe:300000,  fn:5000000},
+  // ── Other common states ────────────────────────────────────────
+  {id:'ca-v',    label:'California V   (FIPS 0405)',proj:'lcc',lat0:33+30/60,sp1:34+2/60, sp2:35+28/60,cm:-118,      fe:2000000, fn:500000},
+  {id:'ny-li',   label:'New York LI    (FIPS 3104)',proj:'lcc',lat0:40+10/60,sp1:40+40/60,sp2:41+2/60, cm:-74,       fe:300000,  fn:0},
+  {id:'va-n',    label:'Virginia North (FIPS 4501)',proj:'lcc',lat0:37+40/60,sp1:38+2/60, sp2:39+12/60,cm:-78+30/60, fe:3500000, fn:2000000},
+  {id:'va-s',    label:'Virginia South (FIPS 4502)',proj:'lcc',lat0:36+20/60,sp1:36+46/60,sp2:37+58/60,cm:-78+30/60, fe:3500000, fn:1000000},
+];
+
+// Show CRS selection dialog before geo DXF export; skip dialog for non-geo.
+function showDxfDialog(){
+  if(!S.aerial||!S.leaflet){exportDXF();return;}
+  const sel=document.getElementById('crsSelect');
+  sel.innerHTML=CRS_LIST.map(c=>`<option value="${c.id}">${c.label}</option>`).join('');
+  sel.value=S.exportCRS||'utm';
+  document.getElementById('dxfModal').style.display='flex';
+}
+function doExportDXF(){
+  document.getElementById('dxfModal').style.display='none';
+  S.exportCRS=document.getElementById('crsSelect').value;
+  exportDXF();
+}
+
 async function exportDXF(){
   try{
   const data=getExportData();
@@ -3061,16 +3120,31 @@ async function exportDXF(){
   let toXY,ctrUTM=null,ctrLL=null,ctrFt=null;
   if(isGeo){
     ctrLL=S.leaflet.getCenter();
-    ctrUTM=_latLngToUTM(ctrLL.lat,ctrLL.lng);
-    // Output coordinates in FEET (UTM × 3.28084).
-    // S.ppm / effectivePpm is px/ft (AASHTO), so all vehicle dimensions are in feet.
-    // Outputting in feet ensures AutoCAD measures match: WB-67 W=8.5ft, etc.
-    ctrFt={easting:ctrUTM.easting*M2FT,northing:ctrUTM.northing*M2FT};
-    toXY=pt=>{
-      const ll=S.leaflet.containerPointToLatLng([pt.x,pt.y]);
-      const u=_latLngToUTM(ll.lat,ll.lng);
-      return{x:u.easting*M2FT,y:u.northing*M2FT};
-    };
+    // Determine active CRS
+    const crsId=S.exportCRS||'utm';
+    const crsDef=CRS_LIST.find(c=>c.id===crsId)||CRS_LIST[0];
+    if(crsDef.proj==='lcc'){
+      // Lambert Conformal Conic → US Survey Feet
+      const ctrProj=_lccProject(ctrLL.lat,ctrLL.lng,crsDef);
+      ctrFt={easting:ctrProj.easting,northing:ctrProj.northing};
+      toXY=pt=>{
+        const ll=S.leaflet.containerPointToLatLng([pt.x,pt.y]);
+        const r=_lccProject(ll.lat,ll.lng,crsDef);
+        return{x:r.easting,y:r.northing};
+      };
+    } else {
+      // UTM → feet (default)
+      ctrUTM=_latLngToUTM(ctrLL.lat,ctrLL.lng);
+      // Output coordinates in FEET (UTM × 3.28084).
+      // S.ppm / effectivePpm is px/ft (AASHTO), so all vehicle dimensions are in feet.
+      // Outputting in feet ensures AutoCAD measures match: WB-67 W=8.5ft, etc.
+      ctrFt={easting:ctrUTM.easting*M2FT,northing:ctrUTM.northing*M2FT};
+      toXY=pt=>{
+        const ll=S.leaflet.containerPointToLatLng([pt.x,pt.y]);
+        const u=_latLngToUTM(ll.lat,ll.lng);
+        return{x:u.easting*M2FT,y:u.northing*M2FT};
+      };
+    }
   } else {
     toXY=pt=>({x:pt.x/effectivePpm,y:-pt.y/effectivePpm});
   }
@@ -3361,10 +3435,19 @@ async function exportDXF(){
     zip.file('aerial.png',pngBlob);
     zip.file('aerial.pgw',_calcWorldFile(S.leaflet)); // world file for GIS tools
   }
-  const _ns=ctrUTM.northern?'N':'S';
-  const _epsg=ctrUTM.northern?32600+ctrUTM.zone:32700+ctrUTM.zone;
+  const _crsId2=S.exportCRS||'utm';
+  const _crsDef2=CRS_LIST.find(c=>c.id===_crsId2)||CRS_LIST[0];
+  let _crsLabel;
+  if(_crsDef2.proj==='lcc'){
+    _crsLabel=`${_crsDef2.label} — coordinates in US Survey Feet`;
+  } else {
+    const _ns=ctrUTM?ctrUTM.northern?'N':'S':'N';
+    const _z=ctrUTM?ctrUTM.zone:0;
+    const _epsg=ctrUTM?(ctrUTM.northern?32600+ctrUTM.zone:32700+ctrUTM.zone):0;
+    _crsLabel=`WGS 84 / UTM Zone ${_z}${_ns} (EPSG:${_epsg}) — coordinates in US Survey Feet`;
+  }
   const readme=
-    `Coordinate System: WGS 84 / UTM Zone ${ctrUTM.zone}${_ns} (EPSG:${_epsg}) — coordinates in US Survey Feet\n\n`+
+    `Coordinate System: ${_crsLabel}\n\n`+
     `Files:\n`+
     `  ${stem}.dxf  — vehicle turn paths\n`+
     (mapCanvas?`  aerial.png   — captured satellite imagery\n  aerial.pgw   — PNG world file (for GIS tools)\n`:'')+
@@ -3805,5 +3888,19 @@ function showSupStatus(text,type){
   }
 })();
 </script>
+
+<!-- DXF Export – Coordinate System Dialog -->
+<div id="dxfModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;align-items:center;justify-content:center;">
+  <div style="background:#1e293b;border:1px solid #334155;border-radius:12px;padding:24px;width:400px;max-width:92vw;box-shadow:0 8px 32px rgba(0,0,0,.5);">
+    <h3 style="color:#f1f5f9;margin:0 0 16px;font-size:15px;font-weight:600;">DXF Export — Coordinate System</h3>
+    <label style="color:#94a3b8;font-size:12px;display:block;margin-bottom:6px;">Select coordinate system for exported DXF</label>
+    <select id="crsSelect" style="width:100%;background:#0f172a;color:#f1f5f9;border:1px solid #475569;border-radius:6px;padding:8px 10px;font-size:13px;margin-bottom:8px;"></select>
+    <p style="color:#64748b;font-size:11px;margin:0 0 20px;">Coordinates exported in US Survey Feet. In AutoCAD/Civil3D use MAPCSASSIGN to assign the chosen CRS.</p>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button onclick="document.getElementById('dxfModal').style.display='none'" style="padding:8px 18px;border-radius:6px;border:1px solid #475569;background:transparent;color:#94a3b8;cursor:pointer;font-size:13px;">Cancel</button>
+      <button onclick="doExportDXF()" style="padding:8px 18px;border-radius:6px;border:none;background:#3b82f6;color:#fff;cursor:pointer;font-weight:600;font-size:13px;">Download DXF</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>

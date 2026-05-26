@@ -3181,12 +3181,13 @@ async function exportDXF(){
       // State Plane via proj4js — exact EPSG parameters, output in US Survey Feet.
       // Same math AutoCAD/ArcGIS/QGIS use: guarantees DXF aligns with KML/georef data.
       if(typeof proj4==='undefined') throw new Error('proj4 library failed to load — check your internet connection and try again.');
-      const projFn=proj4('EPSG:4326',crsDef.p4);
-      const ctrPt=projFn.forward([ctrLL.lng,ctrLL.lat]);
+      // proj4(defStr, [lng, lat]) → projects from WGS84 geographic to defStr.
+      // Single-argument form always uses WGS84 as source — no registry lookup needed.
+      const ctrPt=proj4(crsDef.p4,[ctrLL.lng,ctrLL.lat]);
       ctrFt={easting:ctrPt[0],northing:ctrPt[1]};
       toXY=pt=>{
         const ll=S.leaflet.containerPointToLatLng([pt.x,pt.y]);
-        const r=projFn.forward([ll.lng,ll.lat]); // proj4 takes [lng, lat]
+        const r=proj4(crsDef.p4,[ll.lng,ll.lat]);
         return{x:r[0],y:r[1]};
       };
     } else {

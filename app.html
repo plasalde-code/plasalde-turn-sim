@@ -3181,14 +3181,21 @@ async function exportDXF(){
       // State Plane via proj4js — exact EPSG parameters, output in US Survey Feet.
       // Same math AutoCAD/ArcGIS/QGIS use: guarantees DXF aligns with KML/georef data.
       if(typeof proj4==='undefined') throw new Error('proj4 library failed to load — check your internet connection and try again.');
-      // proj4(defStr, [lng, lat]) → projects from WGS84 geographic to defStr.
-      // Single-argument form always uses WGS84 as source — no registry lookup needed.
-      const ctrPt=proj4(crsDef.p4,[ctrLL.lng,ctrLL.lat]);
-      ctrFt={easting:ctrPt[0],northing:ctrPt[1]};
+      // Explicit 3-arg proj4js call with WGS84 string source.
+      // Compute in metres (+units=m) then multiply by USFT manually —
+      // avoids any +units=us-ft handling differences between proj4js versions.
+      const WGS84_DEF='+proj=longlat +datum=WGS84 +no_defs';
+      const USFT=3937/1200; // 1 m = 3.280833... US Survey Feet
+      const p4m=crsDef.p4.replace('+units=us-ft','+units=m');
+      const _project=(lng,lat)=>{
+        const r=proj4(WGS84_DEF,p4m,[lng,lat]);
+        return{x:r[0]*USFT,y:r[1]*USFT};
+      };
+      const ctrPt=_project(ctrLL.lng,ctrLL.lat);
+      ctrFt={easting:ctrPt.x,northing:ctrPt.y};
       toXY=pt=>{
         const ll=S.leaflet.containerPointToLatLng([pt.x,pt.y]);
-        const r=proj4(crsDef.p4,[ll.lng,ll.lat]);
-        return{x:r[0],y:r[1]};
+        return _project(ll.lng,ll.lat);
       };
     } else {
       // UTM → feet (default)

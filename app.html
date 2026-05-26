@@ -230,7 +230,9 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#111827;color:#e5
     <select id="tile-sel" onchange="switchTileLayer(this.value)" title="Satellite imagery provider" style="display:none;background:#1f2937;border:1px solid #374151;border-radius:6px;color:#9ca3af;font-size:11px;padding:4px 6px;cursor:pointer">
       <option value="esri">Esri World</option>
       <option value="esri-clarity">Esri Clarity</option>
-      <option value="usgs">USGS (US only)</option>
+      <option value="usgs">USGS Ortho (US)</option>
+      <option value="naip">USGS NAIP (US)</option>
+      <option value="custom">Custom URL…</option>
     </select>
     <button class="hbtn" onclick="loadPDF()">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
@@ -2182,6 +2184,8 @@ function toggleAerial(){
       S.leaflet=L.map('map-container',{zoomControl:true,scrollWheelZoom:true}).setView([25.775,-80.19],17);
       S._tileLayer=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
         {attribution:'Imagery &copy; Esri',maxZoom:21,maxNativeZoom:19,crossOrigin:true}).addTo(S.leaflet);
+      // Restore last-chosen tile provider (or custom URL) from previous session
+      setTimeout(_restoreLastTile,0);
       // When map moves: reproject vertices and re-render.
       // 'move' fires on EVERY pan step (real-time) so vertices follow tiles during drag.
       // 'moveend'/'zoomend' also fire at the end for a clean final redraw.
@@ -2232,15 +2236,48 @@ function toggleAerial(){
 }
 
 const TILE_LAYERS={
-  'esri':{url:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',attr:'Imagery &copy; Esri',maxZoom:21,maxNative:19},
+  'esri':        {url:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',attr:'Imagery &copy; Esri',maxZoom:21,maxNative:19},
   'esri-clarity':{url:'https://clarity.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',attr:'Imagery &copy; Esri Clarity',maxZoom:21,maxNative:19},
-  'usgs':{url:'https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}',attr:'Imagery &copy; USGS',maxZoom:16,maxNative:16},
+  'usgs':        {url:'https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}',attr:'Imagery &copy; USGS',maxZoom:16,maxNative:16},
+  'naip':        {url:'https://gis.apfo.usda.gov/arcgis/rest/services/NAIP/USDA_CONUS_PRIME/ImageServer/tile/{z}/{y}/{x}',attr:'NAIP Imagery &copy; USDA/FPAC',maxZoom:19,maxNative:18},
 };
 function switchTileLayer(key){
   if(!S.leaflet) return;
+  if(key==='custom'){
+    const saved=localStorage.getItem('customTileUrl')||'';
+    const url=prompt(
+      'Enter XYZ tile URL — use {z}/{x}/{y} placeholders.\n\nExamples:\n'+
+      '  https://tiles.example.com/imagery/{z}/{x}/{y}.png\n'+
+      '  https://your-county-gis.gov/tile/{z}/{y}/{x}\n\n'+
+      'Tip: Check your county GIS portal or FDOT for a tile service URL.',
+      saved
+    );
+    if(!url){document.getElementById('tile-sel').value=S._tileKey||'esri';return;}
+    localStorage.setItem('customTileUrl',url);
+    if(S._tileLayer) S.leaflet.removeLayer(S._tileLayer);
+    S._tileLayer=L.tileLayer(url,{attribution:'Custom imagery',maxZoom:22,maxNativeZoom:21,crossOrigin:true}).addTo(S.leaflet);
+    S._tileKey='custom';
+    return;
+  }
   const cfg=TILE_LAYERS[key]||TILE_LAYERS['esri'];
   if(S._tileLayer) S.leaflet.removeLayer(S._tileLayer);
   S._tileLayer=L.tileLayer(cfg.url,{attribution:cfg.attr,maxZoom:cfg.maxZoom,maxNativeZoom:cfg.maxNative,crossOrigin:true}).addTo(S.leaflet);
+  S._tileKey=key;
+  localStorage.setItem('lastTileLayer',key);
+}
+// Restore last-used tile layer on aerial init
+function _restoreLastTile(){
+  const last=localStorage.getItem('lastTileLayer');
+  const customUrl=localStorage.getItem('customTileUrl');
+  if(last&&last!=='esri'&&TILE_LAYERS[last]){
+    document.getElementById('tile-sel').value=last;
+    switchTileLayer(last);
+  } else if(last==='custom'&&customUrl){
+    document.getElementById('tile-sel').value='custom';
+    if(S._tileLayer) S.leaflet.removeLayer(S._tileLayer);
+    S._tileLayer=L.tileLayer(customUrl,{attribution:'Custom imagery',maxZoom:22,maxNativeZoom:21,crossOrigin:true}).addTo(S.leaflet);
+    S._tileKey='custom';
+  }
 }
 
 // ══════════════════════════════════════════════════════════════════

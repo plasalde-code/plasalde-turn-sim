@@ -9,7 +9,7 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.0/proj4.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/proj4@2.9.0/dist/proj4.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="config.js"></script>
 <script>
@@ -3180,6 +3180,7 @@ async function exportDXF(){
     if(crsDef.p4){
       // State Plane via proj4js — exact EPSG parameters, output in US Survey Feet.
       // Same math AutoCAD/ArcGIS/QGIS use: guarantees DXF aligns with KML/georef data.
+      if(typeof proj4==='undefined') throw new Error('proj4 library failed to load — check your internet connection and try again.');
       const projFn=proj4('EPSG:4326',crsDef.p4);
       const ctrPt=projFn.forward([ctrLL.lng,ctrLL.lat]);
       ctrFt={easting:ctrPt[0],northing:ctrPt[1]};

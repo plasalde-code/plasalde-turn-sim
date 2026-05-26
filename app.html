@@ -9,6 +9,7 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.0/proj4.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="config.js"></script>
 <script>
@@ -3105,31 +3106,47 @@ function _lccProject(lat,lng,p){
 }
 
 // ── Coordinate system list ─────────────────────────────────────────────────────
-// proj:'lcc' = Lambert Conformal Conic (most US state planes)
-// fe/fn in metres (converted to US Survey Feet inside _lccProject)
+// p4: exact EPSG proj4 strings — output is US Survey Feet (units=us-ft).
+// Using proj4js ensures coordinates match AutoCAD / ArcGIS / QGIS exactly.
 const CRS_LIST=[
-  {id:'utm',     label:'UTM – Global (auto zone)', proj:null},
+  {id:'utm',  label:'UTM – Global (auto zone)', p4:null},
   // ── Florida ──────────────────────────────────────────────────
-  {id:'fl-e',    label:'Florida East   (FIPS 0901)',proj:'lcc',lat0:24+20/60,sp1:24+20/60,sp2:26+40/60,cm:-81,       fe:200000,  fn:0},
-  {id:'fl-w',    label:'Florida West   (FIPS 0902)',proj:'lcc',lat0:24+20/60,sp1:24+20/60,sp2:26+40/60,cm:-82,       fe:200000,  fn:0},
-  {id:'fl-n',    label:'Florida North  (FIPS 0903)',proj:'lcc',lat0:29,      sp1:29+35/60,sp2:30+45/60,cm:-84.5,     fe:600000,  fn:0},
+  {id:'fl-e', label:'Florida East   (FIPS 0901 / EPSG:2236)',
+   p4:'+proj=lcc +lat_1=24.3333333333 +lat_2=26.6666666667 +lat_0=24.3333333333 +lon_0=-81 +x_0=200000.0001016 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
+  {id:'fl-w', label:'Florida West   (FIPS 0902 / EPSG:2237)',
+   p4:'+proj=lcc +lat_1=24.3333333333 +lat_2=26.6666666667 +lat_0=24.3333333333 +lon_0=-82 +x_0=200000.0001016 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
+  {id:'fl-n', label:'Florida North  (FIPS 0903 / EPSG:2238)',
+   p4:'+proj=lcc +lat_1=29.5833333333 +lat_2=30.75 +lat_0=29 +lon_0=-84.5 +x_0=600000 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
   // ── Georgia ───────────────────────────────────────────────────
-  {id:'ga-e',    label:'Georgia East   (FIPS 1001)',proj:'lcc',lat0:30,      sp1:31,      sp2:32,      cm:-82+10/60, fe:200000,  fn:0},
-  {id:'ga-w',    label:'Georgia West   (FIPS 1002)',proj:'lcc',lat0:30,      sp1:30,      sp2:31+50/60,cm:-84+10/60, fe:700000,  fn:0},
+  {id:'ga-e', label:'Georgia East   (FIPS 1001 / EPSG:2239)',
+   p4:'+proj=lcc +lat_1=31 +lat_2=32 +lat_0=30 +lon_0=-82.1666666667 +x_0=200000.0001016 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
+  {id:'ga-w', label:'Georgia West   (FIPS 1002 / EPSG:2240)',
+   p4:'+proj=lcc +lat_1=30 +lat_2=31.8333333333 +lat_0=30 +lon_0=-84.1666666667 +x_0=700000 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
   // ── North/South Carolina ──────────────────────────────────────
-  {id:'nc',      label:'North Carolina (FIPS 3200)',proj:'lcc',lat0:33+45/60,sp1:34+20/60,sp2:36+10/60,cm:-79,       fe:609601.22,fn:0},
-  {id:'sc',      label:'South Carolina (FIPS 3900)',proj:'lcc',lat0:31+50/60,sp1:32+30/60,sp2:34+50/60,cm:-81,       fe:609600,  fn:0},
+  {id:'nc',   label:'North Carolina (FIPS 3200 / EPSG:32119)',
+   p4:'+proj=lcc +lat_1=34.3333333333 +lat_2=36.1666666667 +lat_0=33.75 +lon_0=-79 +x_0=609601.22 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
+  {id:'sc',   label:'South Carolina (FIPS 3900 / EPSG:3361)',
+   p4:'+proj=lcc +lat_1=32.5 +lat_2=34.8333333333 +lat_0=31.8333333333 +lon_0=-81 +x_0=609600 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
   // ── Texas ─────────────────────────────────────────────────────
-  {id:'tx-n',    label:'Texas North    (FIPS 4201)',proj:'lcc',lat0:34,      sp1:34+39/60,sp2:36+11/60,cm:-101+30/60,fe:200000,  fn:1000000},
-  {id:'tx-nc',   label:'Texas N.Cntrl  (FIPS 4202)',proj:'lcc',lat0:31+40/60,sp1:32+8/60, sp2:33+58/60,cm:-98.5,     fe:600000,  fn:2000000},
-  {id:'tx-c',    label:'Texas Central  (FIPS 4203)',proj:'lcc',lat0:29+40/60,sp1:30+7/60, sp2:31+53/60,cm:-(100+20/60),fe:700000, fn:3000000},
-  {id:'tx-sc',   label:'Texas S.Cntrl  (FIPS 4204)',proj:'lcc',lat0:27+50/60,sp1:28+23/60,sp2:30+17/60,cm:-99,       fe:600000,  fn:4000000},
-  {id:'tx-s',    label:'Texas South    (FIPS 4205)',proj:'lcc',lat0:25+40/60,sp1:26+10/60,sp2:27+50/60,cm:-98+30/60, fe:300000,  fn:5000000},
+  {id:'tx-n', label:'Texas North    (FIPS 4201 / EPSG:32137)',
+   p4:'+proj=lcc +lat_1=34.65 +lat_2=36.1833333333 +lat_0=34 +lon_0=-101.5 +x_0=200000.0001016 +y_0=1000000.0001016 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
+  {id:'tx-nc',label:'Texas N.Cntrl  (FIPS 4202 / EPSG:32138)',
+   p4:'+proj=lcc +lat_1=32.1333333333 +lat_2=33.9666666667 +lat_0=31.6666666667 +lon_0=-98.5 +x_0=600000 +y_0=2000000.0001016 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
+  {id:'tx-c', label:'Texas Central  (FIPS 4203 / EPSG:32139)',
+   p4:'+proj=lcc +lat_1=30.1166666667 +lat_2=31.8833333333 +lat_0=29.6666666667 +lon_0=-100.3333333333 +x_0=700000 +y_0=3000000 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
+  {id:'tx-sc',label:'Texas S.Cntrl  (FIPS 4204 / EPSG:32140)',
+   p4:'+proj=lcc +lat_1=28.3833333333 +lat_2=30.2833333333 +lat_0=27.8333333333 +lon_0=-99 +x_0=600000 +y_0=4000000.0001016 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
+  {id:'tx-s', label:'Texas South    (FIPS 4205 / EPSG:32141)',
+   p4:'+proj=lcc +lat_1=26.1666666667 +lat_2=27.8333333333 +lat_0=25.6666666667 +lon_0=-98.5 +x_0=300000.0001016 +y_0=5000000.0001016 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
   // ── Other common states ────────────────────────────────────────
-  {id:'ca-v',    label:'California V   (FIPS 0405)',proj:'lcc',lat0:33+30/60,sp1:34+2/60, sp2:35+28/60,cm:-118,      fe:2000000, fn:500000},
-  {id:'ny-li',   label:'New York LI    (FIPS 3104)',proj:'lcc',lat0:40+10/60,sp1:40+40/60,sp2:41+2/60, cm:-74,       fe:300000,  fn:0},
-  {id:'va-n',    label:'Virginia North (FIPS 4501)',proj:'lcc',lat0:37+40/60,sp1:38+2/60, sp2:39+12/60,cm:-78+30/60, fe:3500000, fn:2000000},
-  {id:'va-s',    label:'Virginia South (FIPS 4502)',proj:'lcc',lat0:36+20/60,sp1:36+46/60,sp2:37+58/60,cm:-78+30/60, fe:3500000, fn:1000000},
+  {id:'ca-v', label:'California V   (FIPS 0405 / EPSG:2229)',
+   p4:'+proj=lcc +lat_1=34.0333333333 +lat_2=35.4666666667 +lat_0=33.5 +lon_0=-118 +x_0=2000000.0001016 +y_0=500000.0001016 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
+  {id:'ny-li',label:'New York LI    (FIPS 3104 / EPSG:2263)',
+   p4:'+proj=lcc +lat_1=40.6666666667 +lat_2=41.0333333333 +lat_0=40.1666666667 +lon_0=-74 +x_0=300000.0001016 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
+  {id:'va-n', label:'Virginia North (FIPS 4501 / EPSG:32146)',
+   p4:'+proj=lcc +lat_1=38.0333333333 +lat_2=39.2 +lat_0=37.6666666667 +lon_0=-78.5 +x_0=3500000.0001016 +y_0=2000000.0001016 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
+  {id:'va-s', label:'Virginia South (FIPS 4502 / EPSG:32147)',
+   p4:'+proj=lcc +lat_1=36.7666666667 +lat_2=37.9666666667 +lat_0=36.3333333333 +lon_0=-78.5 +x_0=3500000.0001016 +y_0=1000000.0001016 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
 ];
 
 // Show CRS selection dialog before geo DXF export; skip dialog for non-geo.
@@ -3160,14 +3177,16 @@ async function exportDXF(){
     // Determine active CRS
     const crsId=S.exportCRS||'utm';
     const crsDef=CRS_LIST.find(c=>c.id===crsId)||CRS_LIST[0];
-    if(crsDef.proj==='lcc'){
-      // Lambert Conformal Conic → US Survey Feet
-      const ctrProj=_lccProject(ctrLL.lat,ctrLL.lng,crsDef);
-      ctrFt={easting:ctrProj.easting,northing:ctrProj.northing};
+    if(crsDef.p4){
+      // State Plane via proj4js — exact EPSG parameters, output in US Survey Feet.
+      // Same math AutoCAD/ArcGIS/QGIS use: guarantees DXF aligns with KML/georef data.
+      const projFn=proj4('EPSG:4326',crsDef.p4);
+      const ctrPt=projFn.forward([ctrLL.lng,ctrLL.lat]);
+      ctrFt={easting:ctrPt[0],northing:ctrPt[1]};
       toXY=pt=>{
         const ll=S.leaflet.containerPointToLatLng([pt.x,pt.y]);
-        const r=_lccProject(ll.lat,ll.lng,crsDef);
-        return{x:r.easting,y:r.northing};
+        const r=projFn.forward([ll.lng,ll.lat]); // proj4 takes [lng, lat]
+        return{x:r[0],y:r[1]};
       };
     } else {
       // UTM → feet (default)
@@ -3475,7 +3494,7 @@ async function exportDXF(){
   const _crsId2=S.exportCRS||'utm';
   const _crsDef2=CRS_LIST.find(c=>c.id===_crsId2)||CRS_LIST[0];
   let _crsLabel;
-  if(_crsDef2.proj==='lcc'){
+  if(_crsDef2.p4){
     _crsLabel=`${_crsDef2.label} — coordinates in US Survey Feet`;
   } else {
     const _ns=ctrUTM?ctrUTM.northern?'N':'S':'N';

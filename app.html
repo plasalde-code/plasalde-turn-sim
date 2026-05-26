@@ -3051,6 +3051,7 @@ function _utmWKT(zone,northern){
 }
 
 async function exportDXF(){
+  try{
   const data=getExportData();
   if(!data){alert('Draw a path with at least 2 points first.');return;}
   const{pathPts,frames,tracks,env,effectivePpm}=data;
@@ -3379,6 +3380,7 @@ async function exportDXF(){
   a.href=URL.createObjectURL(zipBlob);
   a.download=`${stem}.zip`;
   a.click();
+  }catch(err){alert('DXF export error: '+err.message);}
 }
 
 // ── KML Export ────────────────────────────────────────────────────

@@ -9,7 +9,6 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/proj4@2.9.0/dist/proj4.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="config.js"></script>
 <script>
@@ -262,7 +261,7 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#111827;color:#e5
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       PNG
     </button>
-    <button class="hbtn" onclick="showDxfDialog()" title="Export path and tracks as DXF (AutoCAD)">
+    <button class="hbtn" onclick="exportDXF()" title="Export path and tracks as DXF (AutoCAD)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       DXF
     </button>
@@ -3088,80 +3087,10 @@ function _utmWKT(zone,northern){
     +`PARAMETER["false_northing",${fn}],UNIT["metre",1],AUTHORITY["EPSG","${epsg}"]]`;
 }
 
-// ── Lambert Conformal Conic projection (NAD83 / GRS80 ellipsoid) ──────────────
-// Returns {easting, northing} in US Survey Feet.
-// p = {lat0, sp1, sp2, cm, fe, fn} — all angles in decimal degrees, fe/fn in metres.
-function _lccProject(lat,lng,p){
-  const a=6378137.0,e2=0.00669438002290,e=Math.sqrt(e2),DR=Math.PI/180;
-  const phi=lat*DR,lam=lng*DR,phi0=p.lat0*DR,phi1=p.sp1*DR,phi2=p.sp2*DR,lam0=p.cm*DR;
-  const mf=f=>{const s=Math.sin(f);return Math.cos(f)/Math.sqrt(1-e2*s*s);};
-  const tf=f=>{const s=Math.sin(f);return Math.tan(Math.PI/4-f/2)/Math.pow((1-e*s)/(1+e*s),e/2);};
-  const m1=mf(phi1),m2=mf(phi2),t0=tf(phi0),t1=tf(phi1),t2=tf(phi2),tPhi=tf(phi);
-  const n=Math.log(m1/m2)/Math.log(t1/t2);
-  const F=m1/(n*Math.pow(t1,n));
-  const rho0=a*F*Math.pow(t0,n),rho=a*F*Math.pow(tPhi,n),theta=n*(lam-lam0);
-  const USFT=3937/1200; // metres → US Survey Feet
-  return{easting:(p.fe+rho*Math.sin(theta))*USFT,
-         northing:(p.fn+rho0-rho*Math.cos(theta))*USFT};
-}
-
-// ── Coordinate system list ─────────────────────────────────────────────────────
-// p4: exact EPSG proj4 strings — output is US Survey Feet (units=us-ft).
-// Using proj4js ensures coordinates match AutoCAD / ArcGIS / QGIS exactly.
-const CRS_LIST=[
-  {id:'utm',  label:'UTM – Global (auto zone)', p4:null},
-  // ── Florida ──────────────────────────────────────────────────
-  {id:'fl-e', label:'Florida East   (FIPS 0901 / EPSG:2236)',
-   p4:'+proj=lcc +lat_1=24.3333333333 +lat_2=26.6666666667 +lat_0=24.3333333333 +lon_0=-81 +x_0=200000.0001016 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
-  {id:'fl-w', label:'Florida West   (FIPS 0902 / EPSG:2237)',
-   p4:'+proj=lcc +lat_1=24.3333333333 +lat_2=26.6666666667 +lat_0=24.3333333333 +lon_0=-82 +x_0=200000.0001016 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
-  {id:'fl-n', label:'Florida North  (FIPS 0903 / EPSG:2238)',
-   p4:'+proj=lcc +lat_1=29.5833333333 +lat_2=30.75 +lat_0=29 +lon_0=-84.5 +x_0=600000 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
-  // ── Georgia ───────────────────────────────────────────────────
-  {id:'ga-e', label:'Georgia East   (FIPS 1001 / EPSG:2239)',
-   p4:'+proj=lcc +lat_1=31 +lat_2=32 +lat_0=30 +lon_0=-82.1666666667 +x_0=200000.0001016 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
-  {id:'ga-w', label:'Georgia West   (FIPS 1002 / EPSG:2240)',
-   p4:'+proj=lcc +lat_1=30 +lat_2=31.8333333333 +lat_0=30 +lon_0=-84.1666666667 +x_0=700000 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
-  // ── North/South Carolina ──────────────────────────────────────
-  {id:'nc',   label:'North Carolina (FIPS 3200 / EPSG:32119)',
-   p4:'+proj=lcc +lat_1=34.3333333333 +lat_2=36.1666666667 +lat_0=33.75 +lon_0=-79 +x_0=609601.22 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
-  {id:'sc',   label:'South Carolina (FIPS 3900 / EPSG:3361)',
-   p4:'+proj=lcc +lat_1=32.5 +lat_2=34.8333333333 +lat_0=31.8333333333 +lon_0=-81 +x_0=609600 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
-  // ── Texas ─────────────────────────────────────────────────────
-  {id:'tx-n', label:'Texas North    (FIPS 4201 / EPSG:32137)',
-   p4:'+proj=lcc +lat_1=34.65 +lat_2=36.1833333333 +lat_0=34 +lon_0=-101.5 +x_0=200000.0001016 +y_0=1000000.0001016 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
-  {id:'tx-nc',label:'Texas N.Cntrl  (FIPS 4202 / EPSG:32138)',
-   p4:'+proj=lcc +lat_1=32.1333333333 +lat_2=33.9666666667 +lat_0=31.6666666667 +lon_0=-98.5 +x_0=600000 +y_0=2000000.0001016 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
-  {id:'tx-c', label:'Texas Central  (FIPS 4203 / EPSG:32139)',
-   p4:'+proj=lcc +lat_1=30.1166666667 +lat_2=31.8833333333 +lat_0=29.6666666667 +lon_0=-100.3333333333 +x_0=700000 +y_0=3000000 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
-  {id:'tx-sc',label:'Texas S.Cntrl  (FIPS 4204 / EPSG:32140)',
-   p4:'+proj=lcc +lat_1=28.3833333333 +lat_2=30.2833333333 +lat_0=27.8333333333 +lon_0=-99 +x_0=600000 +y_0=4000000.0001016 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
-  {id:'tx-s', label:'Texas South    (FIPS 4205 / EPSG:32141)',
-   p4:'+proj=lcc +lat_1=26.1666666667 +lat_2=27.8333333333 +lat_0=25.6666666667 +lon_0=-98.5 +x_0=300000.0001016 +y_0=5000000.0001016 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
-  // ── Other common states ────────────────────────────────────────
-  {id:'ca-v', label:'California V   (FIPS 0405 / EPSG:2229)',
-   p4:'+proj=lcc +lat_1=34.0333333333 +lat_2=35.4666666667 +lat_0=33.5 +lon_0=-118 +x_0=2000000.0001016 +y_0=500000.0001016 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
-  {id:'ny-li',label:'New York LI    (FIPS 3104 / EPSG:2263)',
-   p4:'+proj=lcc +lat_1=40.6666666667 +lat_2=41.0333333333 +lat_0=40.1666666667 +lon_0=-74 +x_0=300000.0001016 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
-  {id:'va-n', label:'Virginia North (FIPS 4501 / EPSG:32146)',
-   p4:'+proj=lcc +lat_1=38.0333333333 +lat_2=39.2 +lat_0=37.6666666667 +lon_0=-78.5 +x_0=3500000.0001016 +y_0=2000000.0001016 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
-  {id:'va-s', label:'Virginia South (FIPS 4502 / EPSG:32147)',
-   p4:'+proj=lcc +lat_1=36.7666666667 +lat_2=37.9666666667 +lat_0=36.3333333333 +lon_0=-78.5 +x_0=3500000.0001016 +y_0=1000000.0001016 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
-];
-
-// Show CRS selection dialog before geo DXF export; skip dialog for non-geo.
-function showDxfDialog(){
-  if(!S.aerial||!S.leaflet){exportDXF();return;}
-  const sel=document.getElementById('crsSelect');
-  sel.innerHTML=CRS_LIST.map(c=>`<option value="${c.id}">${c.label}</option>`).join('');
-  sel.value=S.exportCRS||'utm';
-  document.getElementById('dxfModal').style.display='flex';
-}
-function doExportDXF(){
-  document.getElementById('dxfModal').style.display='none';
-  S.exportCRS=document.getElementById('crsSelect').value;
-  exportDXF();
-}
+// ── DXF Export (geo mode always uses WGS84 UTM metres) ────────────────────────
+// Exporting in UTM metres and importing via AutoCAD MAPIMPORT lets AutoCAD's own
+// CRS engine reproject to the drawing CRS — identical to how KML import works,
+// guaranteeing perfect alignment between KML and DXF overlays.
 
 async function exportDXF(){
   try{
@@ -3170,53 +3099,29 @@ async function exportDXF(){
   const{pathPts,frames,tracks,env,effectivePpm}=data;
 
   const isGeo=S.aerial&&S.leaflet;
-  const M2FT=3.28084; // metres → feet conversion factor
+  const M2FT=3.28084; // metres → feet
   let toXY,ctrUTM=null,ctrLL=null,ctrFt=null;
   if(isGeo){
     ctrLL=S.leaflet.getCenter();
-    // Determine active CRS
-    const crsId=S.exportCRS||'utm';
-    const crsDef=CRS_LIST.find(c=>c.id===crsId)||CRS_LIST[0];
-    if(crsDef.p4){
-      // State Plane via proj4js — exact EPSG parameters, output in US Survey Feet.
-      // Same math AutoCAD/ArcGIS/QGIS use: guarantees DXF aligns with KML/georef data.
-      if(typeof proj4==='undefined') throw new Error('proj4 library failed to load — check your internet connection and try again.');
-      // Explicit 3-arg proj4js call with WGS84 string source.
-      // Compute in metres (+units=m) then multiply by USFT manually —
-      // avoids any +units=us-ft handling differences between proj4js versions.
-      const WGS84_DEF='+proj=longlat +datum=WGS84 +no_defs';
-      const USFT=3937/1200; // 1 m = 3.280833... US Survey Feet
-      const p4m=crsDef.p4.replace('+units=us-ft','+units=m');
-      const _project=(lng,lat)=>{
-        const r=proj4(WGS84_DEF,p4m,[lng,lat]);
-        return{x:r[0]*USFT,y:r[1]*USFT};
-      };
-      const ctrPt=_project(ctrLL.lng,ctrLL.lat);
-      ctrFt={easting:ctrPt.x,northing:ctrPt.y};
-      toXY=pt=>{
-        const ll=S.leaflet.containerPointToLatLng([pt.x,pt.y]);
-        return _project(ll.lng,ll.lat);
-      };
-    } else {
-      // UTM → feet (default)
-      ctrUTM=_latLngToUTM(ctrLL.lat,ctrLL.lng);
-      // Output coordinates in FEET (UTM × 3.28084).
-      // S.ppm / effectivePpm is px/ft (AASHTO), so all vehicle dimensions are in feet.
-      // Outputting in feet ensures AutoCAD measures match: WB-67 W=8.5ft, etc.
-      ctrFt={easting:ctrUTM.easting*M2FT,northing:ctrUTM.northing*M2FT};
-      toXY=pt=>{
-        const ll=S.leaflet.containerPointToLatLng([pt.x,pt.y]);
-        const u=_latLngToUTM(ll.lat,ll.lng);
-        return{x:u.easting*M2FT,y:u.northing*M2FT};
-      };
-    }
+    // Always export in WGS84 UTM metres.
+    // Import into AutoCAD Map 3D via MAPIMPORT (not File→Open) and set source CRS
+    // to the UTM zone shown in README.txt — AutoCAD reprojects to the drawing CRS
+    // using its own engine, same as KML import → perfect alignment guaranteed.
+    ctrUTM=_latLngToUTM(ctrLL.lat,ctrLL.lng);
+    ctrFt={easting:ctrUTM.easting,northing:ctrUTM.northing}; // metres
+    toXY=pt=>{
+      const ll=S.leaflet.containerPointToLatLng([pt.x,pt.y]);
+      const u=_latLngToUTM(ll.lat,ll.lng);
+      return{x:u.easting,y:u.northing}; // metres
+    };
   } else {
     toXY=pt=>({x:pt.x/effectivePpm,y:-pt.y/effectivePpm});
   }
-  // Canvas size in feet — used to set EXTMIN/EXTMAX
-  // effectivePpm is px/ft, so sz/effectivePpm = feet
+  // Canvas viewport size converted to output units for EXTMIN/EXTMAX.
+  // effectivePpm is px/ft; divide by M2FT to convert feet → metres (geo mode).
   const _sz=isGeo?S.leaflet.getSize():{x:800,y:600};
-  const _dxfW=_sz.x/effectivePpm, _dxfH=_sz.y/effectivePpm;
+  const _dxfW=isGeo?_sz.x/effectivePpm/M2FT:_sz.x/effectivePpm;
+  const _dxfH=isGeo?_sz.y/effectivePpm/M2FT:_sz.y/effectivePpm;
 
   // ── Hybrid arc-fit + RDP path export ─────────────────────────────────
   // Ramer-Douglas-Peucker simplification (eps in same units as pts).
@@ -3465,11 +3370,11 @@ async function exportDXF(){
   const ld=[['CENTERLINE',2],['WHEEL-PATHS',4],['VEHICLE-OUTLINE',7]];
 
   // ── R12 (AC1009) geo DXF — no handles, no DIMSTYLE, opens in AutoCAD ─
-  // All coordinates in FEET (UTM metres × 3.28084).
-  // effectivePpm is px/ft, _dxfW/_dxfH are already in feet.
+  // All coordinates in WGS84 UTM metres (INSUNITS=6).
+  // Use MAPIMPORT in AutoCAD Map 3D to reproject to drawing CRS.
   let d='0\nSECTION\n2\nHEADER\n';
   d+='9\n$ACADVER\n1\nAC1009\n';
-  d+='9\n$INSUNITS\n70\n2\n';  // 2 = feet (matches vehicle dimensions; S.ppm is px/ft)
+  d+='9\n$INSUNITS\n70\n6\n';  // 6 = metres
   d+=`9\n$EXTMIN\n10\n${(ctrFt.easting-_dxfW/2).toFixed(2)}\n20\n${(ctrFt.northing-_dxfH/2).toFixed(2)}\n30\n0.0\n`;
   d+=`9\n$EXTMAX\n10\n${(ctrFt.easting+_dxfW/2).toFixed(2)}\n20\n${(ctrFt.northing+_dxfH/2).toFixed(2)}\n30\n0.0\n`;
   d+='0\nENDSEC\n';
@@ -3495,31 +3400,51 @@ async function exportDXF(){
   // ── Bundle into ZIP ──────────────────────────────────────────────────
   const zip=new JSZip();
   zip.file(`${stem}.dxf`,d);
+
+  // .prj sidecar — WKT projection for the UTM zone (used as MAPIMPORT source CRS hint)
+  const _utmZone=ctrUTM.zone;
+  const _ns=ctrUTM.northern?'N':'S';
+  const _cm=((_utmZone*6)-183);
+  const _fn=ctrUTM.northern?0:10000000;
+  const _epsg=ctrUTM.northern?32600+_utmZone:32700+_utmZone;
+  const prjWkt=`PROJCS["WGS 84 / UTM zone ${_utmZone}${_ns}",`+
+    `GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563,AUTHORITY["EPSG","7030"]],`+
+    `AUTHORITY["EPSG","6326"]],PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],`+
+    `UNIT["degree",0.0174532925199433,AUTHORITY["EPSG","9122"]],AUTHORITY["EPSG","4326"]],`+
+    `PROJECTION["Transverse_Mercator"],PARAMETER["latitude_of_origin",0],`+
+    `PARAMETER["central_meridian",${_cm}],PARAMETER["scale_factor",0.9996],`+
+    `PARAMETER["false_easting",500000],PARAMETER["false_northing",${_fn}],`+
+    `UNIT["metre",1,AUTHORITY["EPSG","9001"]],AUTHORITY["EPSG","${_epsg}"]]`;
+  zip.file(`${stem}.prj`,prjWkt);
+
   if(mapCanvas){
     const pngBlob=await new Promise(res=>mapCanvas.toBlob(res,'image/png'));
     zip.file('aerial.png',pngBlob);
     zip.file('aerial.pgw',_calcWorldFile(S.leaflet)); // world file for GIS tools
   }
-  const _crsId2=S.exportCRS||'utm';
-  const _crsDef2=CRS_LIST.find(c=>c.id===_crsId2)||CRS_LIST[0];
-  let _crsLabel;
-  if(_crsDef2.p4){
-    _crsLabel=`${_crsDef2.label} — coordinates in US Survey Feet`;
-  } else {
-    const _ns=ctrUTM?ctrUTM.northern?'N':'S':'N';
-    const _z=ctrUTM?ctrUTM.zone:0;
-    const _epsg=ctrUTM?(ctrUTM.northern?32600+ctrUTM.zone:32700+ctrUTM.zone):0;
-    _crsLabel=`WGS 84 / UTM Zone ${_z}${_ns} (EPSG:${_epsg}) — coordinates in US Survey Feet`;
-  }
+
+  const _crsLabel=`WGS 84 / UTM Zone ${_utmZone}${_ns} (EPSG:${_epsg}) — coordinates in metres`;
   const readme=
     `Coordinate System: ${_crsLabel}\n\n`+
     `Files:\n`+
-    `  ${stem}.dxf  — vehicle turn paths\n`+
+    `  ${stem}.dxf  — vehicle turn paths (UTM metres)\n`+
+    `  ${stem}.prj  — WKT projection definition\n`+
     (mapCanvas?`  aerial.png   — captured satellite imagery\n  aerial.pgw   — PNG world file (for GIS tools)\n`:'')+
-    `\nHow to open (NanoCAD / AutoCAD):\n`+
+    `\nHow to import into AutoCAD Map 3D / Civil 3D (REQUIRED for geo-alignment):\n`+
+    `  *** Use MAPIMPORT — NOT File > Open or XREF ***\n\n`+
     `  1. Extract ALL files to the same folder\n`+
-    `  2. Open ${stem}.dxf — type ZE (Zoom Extents) if blank\n`+
-    (mapCanvas?`  3. Aerial: IMAGEATTACH → select aerial.png → OK\n`:`  3. No aerial captured\n`)+
+    `  2. Command line → MAPIMPORT\n`+
+    `  3. Set "Files of type" to DXF → browse to ${stem}.dxf → Open\n`+
+    `  4. In the Import dialog:\n`+
+    `       - Spatial Filter → None\n`+
+    `       - Input Coordinate System → click "..." → search for:\n`+
+    `         UTM Zone ${_utmZone}${_ns} or EPSG:${_epsg}\n`+
+    `       - Click OK → Import\n`+
+    `  5. AutoCAD reprojects from UTM to your drawing CRS automatically —\n`+
+    `     linework will align exactly with KML imports from the same tool.\n`+
+    `\n  WHY: AutoCAD's reprojection engine is used for both KML and MAPIMPORT,\n`+
+    `  so both arrive at identical coordinates in your drawing CRS.\n`+
+    (mapCanvas?`\nAerial image:\n  IMAGEATTACH → select aerial.png → OK\n`:'')+
     `\nLayers: CENTERLINE, WHEEL-PATHS, VEHICLE-OUTLINE`;
 
   zip.file('README.txt',readme);
@@ -3955,17 +3880,5 @@ function showSupStatus(text,type){
 </script>
 
 <!-- DXF Export – Coordinate System Dialog -->
-<div id="dxfModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;align-items:center;justify-content:center;">
-  <div style="background:#1e293b;border:1px solid #334155;border-radius:12px;padding:24px;width:400px;max-width:92vw;box-shadow:0 8px 32px rgba(0,0,0,.5);">
-    <h3 style="color:#f1f5f9;margin:0 0 16px;font-size:15px;font-weight:600;">DXF Export — Coordinate System</h3>
-    <label style="color:#94a3b8;font-size:12px;display:block;margin-bottom:6px;">Select coordinate system for exported DXF</label>
-    <select id="crsSelect" style="width:100%;background:#0f172a;color:#f1f5f9;border:1px solid #475569;border-radius:6px;padding:8px 10px;font-size:13px;margin-bottom:8px;"></select>
-    <p style="color:#64748b;font-size:11px;margin:0 0 20px;">Coordinates exported in US Survey Feet. In AutoCAD/Civil3D use MAPCSASSIGN to assign the chosen CRS.</p>
-    <div style="display:flex;gap:8px;justify-content:flex-end;">
-      <button onclick="document.getElementById('dxfModal').style.display='none'" style="padding:8px 18px;border-radius:6px;border:1px solid #475569;background:transparent;color:#94a3b8;cursor:pointer;font-size:13px;">Cancel</button>
-      <button onclick="doExportDXF()" style="padding:8px 18px;border-radius:6px;border:none;background:#3b82f6;color:#fff;cursor:pointer;font-weight:600;font-size:13px;">Download DXF</button>
-    </div>
-  </div>
-</div>
 </body>
 </html>

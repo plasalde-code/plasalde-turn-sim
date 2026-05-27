@@ -58,12 +58,14 @@ const TERMS_VERSION = 'terms_v2';
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:system-ui,-apple-system,sans-serif;background:#111827;color:#e5e7eb;height:100vh;overflow:hidden;display:flex;flex-direction:column}
-#hdr{height:46px;background:#1f2937;display:flex;align-items:center;padding:0 14px;gap:10px;border-bottom:1px solid #374151;flex-shrink:0}
-#hdr-title{font-size:14px;font-weight:700;color:#f87171;letter-spacing:.3px;white-space:nowrap}
-#hdr-actions{display:flex;gap:6px;margin-left:auto}
-.hbtn{padding:5px 10px;border-radius:6px;border:1px solid #374151;background:transparent;color:#9ca3af;cursor:pointer;font-size:12px;font-weight:500;display:flex;align-items:center;gap:5px;transition:all .15s;white-space:nowrap}
+#hdr{height:42px;background:#1f2937;display:flex;align-items:center;padding:0 10px;gap:0;border-bottom:1px solid #374151;flex-shrink:0;overflow:hidden}
+#hdr-title{font-size:12px;font-weight:700;color:#f87171;letter-spacing:.3px;white-space:nowrap;padding-right:8px}
+#hdr-actions{display:flex;align-items:center;gap:3px;margin-left:auto;flex-wrap:nowrap}
+.hbtn{padding:4px 7px;border-radius:5px;border:1px solid #374151;background:transparent;color:#9ca3af;cursor:pointer;font-size:11px;font-weight:500;display:flex;align-items:center;gap:4px;transition:all .15s;white-space:nowrap;height:28px}
 .hbtn:hover{background:#374151;color:#e5e7eb}
-.hbtn svg{width:14px;height:14px;flex-shrink:0}
+.hbtn svg{width:13px;height:13px;flex-shrink:0}
+.hbtn-icon{padding:4px;width:28px;justify-content:center}
+.h-sep{width:1px;height:18px;background:#374151;flex-shrink:0;margin:0 4px}
 #app{display:flex;flex:1;overflow:hidden}
 #sidebar{width:210px;background:#1f2937;border-right:1px solid #374151;display:flex;flex-direction:column;overflow:hidden;flex-shrink:0}
 #sidebar-body{flex:1;overflow-y:auto}
@@ -74,10 +76,10 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#111827;color:#e5
 #right-panel-body::-webkit-scrollbar-track{background:transparent}
 #right-panel-body::-webkit-scrollbar-thumb{background:#374151;border-radius:2px}
 /* Tool buttons in header */
-#hdr-tools{display:flex;gap:3px;margin:0 10px}
-#hdr-tools .tbtn{flex-direction:row;padding:5px 9px;font-size:12px;gap:5px;font-weight:500;border-radius:6px;line-height:1}
+#hdr-tools{display:flex;gap:3px;margin:0 6px}
+#hdr-tools .tbtn{flex-direction:row;padding:4px 7px;font-size:11px;gap:4px;font-weight:500;border-radius:5px;line-height:1;height:28px}
 #hdr-tools .tbtn small{display:none}
-#hdr-tools .tbtn svg{width:14px;height:14px;flex-shrink:0}
+#hdr-tools .tbtn svg{width:13px;height:13px;flex-shrink:0}
 #hdr-tools .tbtn.active{background:#dc2626;color:#fff;border-color:#dc2626}
 #canvas-wrap{flex:1;position:relative;overflow:hidden;background:#0f172a}
 .s-sec{padding:10px 12px;border-bottom:1px solid #374151}
@@ -193,9 +195,9 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#111827;color:#e5
 <body>
 
 <div id="hdr">
-  <span id="hdr-title">▶ P.Lasalde Turn Simulator</span>
+  <span id="hdr-title">◼ PL Turn</span>
 
-  <!-- ── Tool buttons in header ── -->
+  <!-- ── Mode tools ── -->
   <div id="hdr-tools">
     <button class="tbtn active" id="tbtn-draw" onclick="setMode('draw')" title="Draw path (D)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
@@ -203,81 +205,89 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#111827;color:#e5
     </button>
     <button class="tbtn" id="tbtn-select" onclick="setMode('select')" title="Select / move vertices (S)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3l14 9-7 1-4 7L5 3z"/></svg>
-      Select
+      Edit
     </button>
-    <button class="tbtn" id="tbtn-pan" onclick="setMode('pan')" title="Pan / drag map (P)">
+    <button class="tbtn" id="tbtn-pan" onclick="setMode('pan')" title="Pan map (P)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 9l-3 3 3 3M9 5l3-3 3 3M15 19l-3 3-3-3M19 9l3 3-3 3M12 12v.01"/><path d="M3 12h18M12 3v18"/></svg>
       Pan
     </button>
-    <button class="tbtn" id="tbtn-scale" onclick="startCalibrate()" title="Set drawing scale">
+    <button class="tbtn" id="tbtn-scale" onclick="startCalibrate()" title="Calibrate scale">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
       Scale
     </button>
     <button class="tbtn" id="tbtn-measure" onclick="setMode('measure')" title="Measure distances (M)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12h20M2 12l4-4M2 12l4 4M22 12l-4-4M22 12l-4 4M12 7v2M12 15v2M7 9v1M17 9v1"/></svg>
-      Measure
+      Dist
     </button>
   </div>
 
   <div id="hdr-actions">
-    <div id="loc-search-wrap" style="display:none;align-items:center;gap:4px">
-      <input id="loc-input" placeholder="Search address or lat,lng…" style="background:#1f2937;border:1px solid #374151;border-radius:6px;color:#f1f5f9;font-size:12px;padding:5px 9px;width:220px;outline:none" onkeydown="if(event.key==='Enter')searchLocation()">
-      <button onclick="searchLocation()" style="background:#374151;border:none;border-radius:6px;color:#f1f5f9;font-size:11px;padding:5px 9px;cursor:pointer">Go</button>
-    </div>
-    <button class="hbtn" id="btn-aerial" onclick="toggleAerial()" title="Toggle satellite imagery background">
+    <!-- Edit group -->
+    <div class="h-sep"></div>
+    <button class="hbtn hbtn-icon" onclick="undoLast()" title="Undo last point (Ctrl+Z)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 00-4-4H4"/></svg>
+    </button>
+    <button class="hbtn hbtn-icon" onclick="clearPath()" title="Clear all points">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+    </button>
+    <button class="hbtn hbtn-icon" id="btn-reverse" onclick="toggleReverse()" title="Reverse direction simulation">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 14l-5-5 5-5"/><path d="M20 20v-7a4 4 0 00-4-4H4"/><path d="M9 10l-5 5"/></svg>
+    </button>
+
+    <!-- Map group -->
+    <div class="h-sep"></div>
+    <button class="hbtn" id="btn-aerial" onclick="toggleAerial()" title="Toggle satellite imagery">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 010 20M12 2a15.3 15.3 0 000 20"/></svg>
       Aerial
     </button>
-    <select id="tile-sel" onchange="switchTileLayer(this.value)" title="Satellite imagery provider" style="display:none;background:#1f2937;border:1px solid #374151;border-radius:6px;color:#9ca3af;font-size:11px;padding:4px 6px;cursor:pointer">
+    <select id="tile-sel" onchange="switchTileLayer(this.value)" title="Imagery provider" style="display:none;background:#1f2937;border:1px solid #374151;border-radius:5px;color:#9ca3af;font-size:11px;padding:3px 5px;cursor:pointer;height:28px">
       <option value="esri">Esri World</option>
       <option value="esri-clarity">Esri Clarity</option>
-      <option value="usgs">USGS Ortho (US)</option>
-      <option value="naip">USGS NAIP (US)</option>
-      <option value="custom">Custom URL…</option>
+      <option value="usgs">USGS Ortho</option>
+      <option value="naip">USGS NAIP</option>
+      <option value="custom">Custom…</option>
     </select>
-    <button class="hbtn" onclick="loadPDF()">
+    <div id="loc-search-wrap" style="display:none;align-items:center;gap:3px">
+      <input id="loc-input" placeholder="Address or lat,lng…" style="background:#1f2937;border:1px solid #374151;border-radius:5px;color:#f1f5f9;font-size:11px;padding:4px 8px;width:180px;outline:none" onkeydown="if(event.key==='Enter')searchLocation()">
+      <button onclick="searchLocation()" style="background:#374151;border:none;border-radius:5px;color:#f1f5f9;font-size:11px;padding:4px 8px;cursor:pointer;height:28px">Go</button>
+    </div>
+
+    <!-- Import group -->
+    <div class="h-sep"></div>
+    <button class="hbtn hbtn-icon" onclick="loadPDF()" title="Load PDF background">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-      Load PDF
     </button>
-    <button class="hbtn" id="btn-kml" onclick="triggerKMLLoad()" title="Import KML/KMZ as reference geometry">
+    <button class="hbtn" id="btn-kml" onclick="triggerKMLLoad()" title="Import KML/KMZ reference overlay">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
-      <span id="kml-btn-label">KML In</span>
+      <span id="kml-btn-label">KML</span>
     </button>
-    <button class="hbtn" id="btn-kml-clear" onclick="clearKML()" title="Clear imported KML geometry" style="display:none;color:#f87171;border-color:#7f1d1d">
-      ✕ KML
+    <button class="hbtn hbtn-icon" id="btn-kml-clear" onclick="clearKML()" title="Clear KML overlay" style="display:none;color:#f87171;border-color:#7f1d1d">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
     </button>
-    <button class="hbtn" onclick="undoLast()">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 00-4-4H4"/></svg>
-      Undo
-    </button>
-    <button class="hbtn" onclick="clearPath()">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
-      Clear
-    </button>
-    <button class="hbtn" id="btn-reverse" onclick="toggleReverse()" title="Toggle reverse maneuver simulation">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 14l-5-5 5-5"/><path d="M20 20v-7a4 4 0 00-4-4H4"/><path d="M9 10l-5 5"/></svg>
-      Reverse
-    </button>
-    <button class="hbtn" onclick="exportPNG()">
+
+    <!-- Export group -->
+    <div class="h-sep"></div>
+    <button class="hbtn" onclick="exportPNG()" title="Export PNG screenshot">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       PNG
     </button>
-    <select id="dxf-crs" title="Coordinate system for DXF export" style="background:#0f172a;color:#9ca3af;border:1px solid #374151;border-radius:6px;padding:4px 7px;font-size:11px;cursor:pointer;height:28px;" onchange="S.exportCRS=this.value;localStorage.setItem('exportCRS',this.value)"></select>
-    <button class="hbtn" onclick="exportDXF()" title="Export path and tracks as DXF (AutoCAD)">
+    <select id="dxf-crs" title="DXF coordinate system — match your AutoCAD drawing CRS" style="background:#0f172a;color:#9ca3af;border:1px solid #374151;border-radius:5px;padding:3px 5px;font-size:11px;cursor:pointer;height:28px;max-width:88px" onchange="S.exportCRS=this.value;localStorage.setItem('exportCRS',this.value)"></select>
+    <button class="hbtn" onclick="exportDXF()" title="Export DXF — open in AutoCAD with MAPCSASSIGN matching selected CRS">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       DXF
     </button>
-    <button class="hbtn" onclick="exportKML()" title="Export path and tracks as KML (Google Earth)">
+    <button class="hbtn" onclick="exportKML()" title="Export KML — import via AutoCAD MAPIMPORT">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       KML
     </button>
-    <button class="hbtn" onclick="openSupport()" title="Contact support" style="border-color:#1d4ed8;color:#93c5fd">
+
+    <!-- Account -->
+    <div class="h-sep"></div>
+    <button class="hbtn hbtn-icon" onclick="openSupport()" title="Support" style="border-color:#1d4ed8;color:#93c5fd">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-      Support
     </button>
-    <button class="hbtn" onclick="doLogout()" title="Log out" style="border-color:#7f1d1d;color:#fca5a5">
+    <button class="hbtn hbtn-icon" onclick="doLogout()" title="Log out" style="border-color:#7f1d1d;color:#fca5a5">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-      Log Out
     </button>
   </div>
 </div>
@@ -3091,22 +3101,22 @@ function _utmWKT(zone,northern){
 
 // ── CRS list for geo DXF export ───────────────────────────────────────────────
 const CRS_LIST=[
-  {id:'fl-e', label:'FL East   (EPSG:2236)', p4:'+proj=lcc +lat_1=24.3333333333 +lat_2=26.6666666667 +lat_0=24.3333333333 +lon_0=-81 +x_0=200000.0001016 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
-  {id:'fl-w', label:'FL West   (EPSG:2237)', p4:'+proj=lcc +lat_1=24.3333333333 +lat_2=26.6666666667 +lat_0=24.3333333333 +lon_0=-82 +x_0=200000.0001016 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
-  {id:'fl-n', label:'FL North  (EPSG:2238)', p4:'+proj=lcc +lat_1=29.5833333333 +lat_2=30.75 +lat_0=29 +lon_0=-84.5 +x_0=600000 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
-  {id:'ga-e', label:'GA East   (EPSG:2239)', p4:'+proj=lcc +lat_1=31 +lat_2=32 +lat_0=30 +lon_0=-82.1666666667 +x_0=200000.0001016 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
-  {id:'ga-w', label:'GA West   (EPSG:2240)', p4:'+proj=lcc +lat_1=30 +lat_2=31.8333333333 +lat_0=30 +lon_0=-84.1666666667 +x_0=700000 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
-  {id:'nc',   label:'NC        (EPSG:32119)',p4:'+proj=lcc +lat_1=34.3333333333 +lat_2=36.1666666667 +lat_0=33.75 +lon_0=-79 +x_0=609601.22 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
-  {id:'sc',   label:'SC        (EPSG:3361)', p4:'+proj=lcc +lat_1=32.5 +lat_2=34.8333333333 +lat_0=31.8333333333 +lon_0=-81 +x_0=609600 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
-  {id:'tx-n', label:'TX North  (EPSG:32137)',p4:'+proj=lcc +lat_1=34.65 +lat_2=36.1833333333 +lat_0=34 +lon_0=-101.5 +x_0=200000.0001016 +y_0=1000000.0001016 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
-  {id:'tx-nc',label:'TX N.Ctr  (EPSG:32138)',p4:'+proj=lcc +lat_1=32.1333333333 +lat_2=33.9666666667 +lat_0=31.6666666667 +lon_0=-98.5 +x_0=600000 +y_0=2000000.0001016 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
-  {id:'tx-c', label:'TX Central(EPSG:32139)',p4:'+proj=lcc +lat_1=30.1166666667 +lat_2=31.8833333333 +lat_0=29.6666666667 +lon_0=-100.3333333333 +x_0=700000 +y_0=3000000 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
-  {id:'tx-sc',label:'TX S.Ctr  (EPSG:32140)',p4:'+proj=lcc +lat_1=28.3833333333 +lat_2=30.2833333333 +lat_0=27.8333333333 +lon_0=-99 +x_0=600000 +y_0=4000000.0001016 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
-  {id:'tx-s', label:'TX South  (EPSG:32141)',p4:'+proj=lcc +lat_1=26.1666666667 +lat_2=27.8333333333 +lat_0=25.6666666667 +lon_0=-98.5 +x_0=300000.0001016 +y_0=5000000.0001016 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
-  {id:'ca-v', label:'CA V      (EPSG:2229)', p4:'+proj=lcc +lat_1=34.0333333333 +lat_2=35.4666666667 +lat_0=33.5 +lon_0=-118 +x_0=2000000.0001016 +y_0=500000.0001016 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
-  {id:'ny-li',label:'NY LI     (EPSG:2263)', p4:'+proj=lcc +lat_1=40.6666666667 +lat_2=41.0333333333 +lat_0=40.1666666667 +lon_0=-74 +x_0=300000.0001016 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
-  {id:'va-n', label:'VA North  (EPSG:32146)',p4:'+proj=lcc +lat_1=38.0333333333 +lat_2=39.2 +lat_0=37.6666666667 +lon_0=-78.5 +x_0=3500000.0001016 +y_0=2000000.0001016 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
-  {id:'va-s', label:'VA South  (EPSG:32147)',p4:'+proj=lcc +lat_1=36.7666666667 +lat_2=37.9666666667 +lat_0=36.3333333333 +lon_0=-78.5 +x_0=3500000.0001016 +y_0=1000000.0001016 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
+  {id:'fl-e', label:'FL East',  p4:'+proj=lcc +lat_1=24.3333333333 +lat_2=26.6666666667 +lat_0=24.3333333333 +lon_0=-81 +x_0=200000.0001016 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
+  {id:'fl-w', label:'FL West',  p4:'+proj=lcc +lat_1=24.3333333333 +lat_2=26.6666666667 +lat_0=24.3333333333 +lon_0=-82 +x_0=200000.0001016 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
+  {id:'fl-n', label:'FL North', p4:'+proj=lcc +lat_1=29.5833333333 +lat_2=30.75 +lat_0=29 +lon_0=-84.5 +x_0=600000 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
+  {id:'ga-e', label:'GA East',  p4:'+proj=lcc +lat_1=31 +lat_2=32 +lat_0=30 +lon_0=-82.1666666667 +x_0=200000.0001016 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
+  {id:'ga-w', label:'GA West',  p4:'+proj=lcc +lat_1=30 +lat_2=31.8333333333 +lat_0=30 +lon_0=-84.1666666667 +x_0=700000 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
+  {id:'nc',   label:'NC',       p4:'+proj=lcc +lat_1=34.3333333333 +lat_2=36.1666666667 +lat_0=33.75 +lon_0=-79 +x_0=609601.22 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
+  {id:'sc',   label:'SC',       p4:'+proj=lcc +lat_1=32.5 +lat_2=34.8333333333 +lat_0=31.8333333333 +lon_0=-81 +x_0=609600 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
+  {id:'tx-n', label:'TX North', p4:'+proj=lcc +lat_1=34.65 +lat_2=36.1833333333 +lat_0=34 +lon_0=-101.5 +x_0=200000.0001016 +y_0=1000000.0001016 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
+  {id:'tx-nc',label:'TX N-Ctr', p4:'+proj=lcc +lat_1=32.1333333333 +lat_2=33.9666666667 +lat_0=31.6666666667 +lon_0=-98.5 +x_0=600000 +y_0=2000000.0001016 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
+  {id:'tx-c', label:'TX Cent',  p4:'+proj=lcc +lat_1=30.1166666667 +lat_2=31.8833333333 +lat_0=29.6666666667 +lon_0=-100.3333333333 +x_0=700000 +y_0=3000000 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
+  {id:'tx-sc',label:'TX S-Ctr', p4:'+proj=lcc +lat_1=28.3833333333 +lat_2=30.2833333333 +lat_0=27.8333333333 +lon_0=-99 +x_0=600000 +y_0=4000000.0001016 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
+  {id:'tx-s', label:'TX South', p4:'+proj=lcc +lat_1=26.1666666667 +lat_2=27.8333333333 +lat_0=25.6666666667 +lon_0=-98.5 +x_0=300000.0001016 +y_0=5000000.0001016 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
+  {id:'ca-v', label:'CA V',     p4:'+proj=lcc +lat_1=34.0333333333 +lat_2=35.4666666667 +lat_0=33.5 +lon_0=-118 +x_0=2000000.0001016 +y_0=500000.0001016 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
+  {id:'ny-li',label:'NY L.I.',  p4:'+proj=lcc +lat_1=40.6666666667 +lat_2=41.0333333333 +lat_0=40.1666666667 +lon_0=-74 +x_0=300000.0001016 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
+  {id:'va-n', label:'VA North', p4:'+proj=lcc +lat_1=38.0333333333 +lat_2=39.2 +lat_0=37.6666666667 +lon_0=-78.5 +x_0=3500000.0001016 +y_0=2000000.0001016 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
+  {id:'va-s', label:'VA South', p4:'+proj=lcc +lat_1=36.7666666667 +lat_2=37.9666666667 +lat_0=36.3333333333 +lon_0=-78.5 +x_0=3500000.0001016 +y_0=1000000.0001016 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
 ];
 function _initCrsSelector(){
   const sel=document.getElementById('dxf-crs');

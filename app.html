@@ -9,6 +9,11 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.0/proj4.js"></script>
+<script>
+// Florida State Plane East, NAD83, US Survey Feet (EPSG:2236 / AutoCAD FL83-E)
+proj4.defs('EPSG:2236','+proj=tmerc +lat_0=24.33333333333333 +lon_0=-81 +k=0.999941177 +x_0=200000.0001016 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs');
+</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="config.js"></script>
 <script>
@@ -270,7 +275,7 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#111827;color:#e5
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       PNG
     </button>
-    <button class="hbtn" onclick="exportDXF()" title="Export DXF (WGS84) — import via MAPIMPORT in AutoCAD Map 3D, source CRS = LL84">
+    <button class="hbtn" onclick="exportDXF()" title="Export DXF — FL83-E State Plane (US Survey Feet). Open directly in AutoCAD Map 3D with FL83-E drawing CRS.">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       DXF
     </button>
@@ -3107,18 +3112,19 @@ async function exportDXF(){
   let toXY,ctrLL=null,ctrFt=null;
   let extMinX,extMinY,extMaxX,extMaxY;
   if(isGeo){
-    // Export in WGS84 decimal degrees (X=longitude, Y=latitude).
-    // AutoCAD Map 3D: use MAPIMPORT → set Input CRS to "LL84" (WGS84 Geographic).
-    // AutoCAD's own engine reprojects to your drawing CRS — identical to KML import.
-    ctrLL=S.leaflet.getCenter();
-    ctrFt={easting:ctrLL.lng,northing:ctrLL.lat};
+    // Export in FL83-E State Plane (EPSG:2236) — US Survey Feet.
+    // Open directly in AutoCAD Map 3D with FL83-E drawing CRS. No extra steps needed.
+    const toSP=([lng,lat])=>proj4('WGS84','EPSG:2236',[lng,lat]);
     toXY=pt=>{
       const ll=S.leaflet.containerPointToLatLng([pt.x,pt.y]);
-      return{x:ll.lng,y:ll.lat};
+      const [e,n]=toSP([ll.lng,ll.lat]);
+      return{x:e,y:n};
     };
     const bnds=S.leaflet.getBounds();
-    extMinX=bnds.getWest(); extMinY=bnds.getSouth();
-    extMaxX=bnds.getEast(); extMaxY=bnds.getNorth();
+    const sw=toSP([bnds.getWest(),bnds.getSouth()]);
+    const ne=toSP([bnds.getEast(),bnds.getNorth()]);
+    extMinX=sw[0]; extMinY=sw[1];
+    extMaxX=ne[0]; extMaxY=ne[1];
   } else {
     toXY=pt=>({x:pt.x/effectivePpm,y:-pt.y/effectivePpm});
     const _sz={x:800,y:600};
@@ -3367,15 +3373,15 @@ async function exportDXF(){
     return;
   }
 
-  // ── GEO: R12 DXF in WGS84 decimal degrees (X=lon, Y=lat) ─────────────
-  // Use MAPIMPORT in AutoCAD Map 3D with Input CRS = "LL84" (WGS84 Geographic).
-  // AutoCAD's engine reprojects to your drawing CRS — same as KML import.
+  // ── GEO: R12 DXF in FL83-E State Plane (US Survey Feet) ─────────────
+  // Coordinates are already in EPSG:2236 — open directly in AutoCAD Map 3D
+  // with FL83-E drawing CRS. No MAPIMPORT or extra steps needed.
   const hasTrailer=tracks.tL&&tracks.tL.length>0;
   const ld=[['CENTERLINE',2],['WHEEL-PATHS',4],['VEHICLE-OUTLINE',7]];
 
   let d='0\nSECTION\n2\nHEADER\n';
   d+='9\n$ACADVER\n1\nAC1009\n';
-  d+='9\n$INSUNITS\n70\n0\n'; // 0 = unitless (coordinates are decimal degrees)
+  d+='9\n$INSUNITS\n70\n2\n'; // 2 = feet (US Survey Feet — FL83-E State Plane)
   d+=`9\n$EXTMIN\n10\n${extMinX.toFixed(8)}\n20\n${extMinY.toFixed(8)}\n30\n0.0\n`;
   d+=`9\n$EXTMAX\n10\n${extMaxX.toFixed(8)}\n20\n${extMaxY.toFixed(8)}\n30\n0.0\n`;
   d+='0\nENDSEC\n';
@@ -3400,16 +3406,6 @@ async function exportDXF(){
   a.href=URL.createObjectURL(blob);
   a.download=`${stem}.dxf`;
   a.click();
-  // Brief reminder of the import workflow
-  setTimeout(()=>alert(
-    'DXF exported in WGS84 (decimal degrees).\n\n'+
-    'To import into AutoCAD Map 3D:\n'+
-    '  1. Command: MAPIMPORT\n'+
-    '  2. Select the .dxf file → Open\n'+
-    '  3. Input Coordinate System → "LL84"\n'+
-    '  4. Click Import\n\n'+
-    'Same workflow as your KML import — aligns perfectly.'
-  ),100);
   }catch(err){alert('DXF export error: '+err.message);}
 }
 

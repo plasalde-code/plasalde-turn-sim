@@ -237,24 +237,22 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#111827;color:#e5
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12h20M2 12l4-4M2 12l4 4M22 12l-4-4M22 12l-4 4M12 7v2M12 15v2M7 9v1M17 9v1"/></svg>
       Dist
     </button>
-  </div>
-
-  <div id="hdr-actions">
-    <!-- Edit group -->
     <div class="h-sep"></div>
-    <button class="hbtn" onclick="undoLast()" title="Undo last point (Ctrl+Z)">
+    <button class="tbtn" onclick="undoLast()" title="Undo last point (Ctrl+Z)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 00-4-4H4"/></svg>
       Undo
     </button>
-    <button class="hbtn" onclick="clearPath()" title="Clear all points">
+    <button class="tbtn" onclick="clearPath()" title="Clear all points">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
       Clear
     </button>
-    <button class="hbtn" id="btn-reverse" onclick="toggleReverse()" title="Reverse direction simulation">
+    <button class="tbtn" id="btn-reverse" onclick="toggleReverse()" title="Reverse direction simulation">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 14l-5-5 5-5"/><path d="M20 20v-7a4 4 0 00-4-4H4"/><path d="M9 10l-5 5"/></svg>
       Reverse
     </button>
+  </div>
 
+  <div id="hdr-actions">
     <!-- Map group -->
     <div class="h-sep"></div>
     <button class="hbtn" id="btn-aerial" onclick="toggleAerial()" title="Toggle satellite imagery">

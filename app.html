@@ -3422,6 +3422,22 @@ async function exportDXF(){
   a.href=URL.createObjectURL(blob);
   a.download=`${stem}.dxf`;
   a.click();
+
+  // Toast: inform user of coordinate system
+  (function showDxfToast(){
+    const t=document.createElement('div');
+    t.innerHTML='<strong>DXF saved</strong> — coordinates in <strong>FL83-EF</strong> (Florida State Plane East, US Survey Feet).<br><span style="font-size:11px;opacity:.8">Open directly in AutoCAD Map 3D with FL83-E drawing CRS.</span>';
+    Object.assign(t.style,{
+      position:'fixed',bottom:'28px',left:'50%',transform:'translateX(-50%)',
+      background:'#1e3a5f',border:'1px solid #3b82f6',color:'#e0f0ff',
+      padding:'12px 20px',borderRadius:'8px',fontSize:'13px',lineHeight:'1.5',
+      boxShadow:'0 4px 16px rgba(0,0,0,.5)',zIndex:'9999',
+      textAlign:'center',maxWidth:'420px',
+      transition:'opacity .4s',opacity:'1',pointerEvents:'none'
+    });
+    document.body.appendChild(t);
+    setTimeout(()=>{t.style.opacity='0';setTimeout(()=>t.remove(),450);},4500);
+  })();
   }catch(err){alert('DXF export error: '+err.message);}
 }
 

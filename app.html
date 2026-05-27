@@ -9,7 +9,6 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/proj4@2.9.0/dist/proj4.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="config.js"></script>
 <script>
@@ -271,8 +270,7 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#111827;color:#e5
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       PNG
     </button>
-    <select id="dxf-crs" title="DXF coordinate system — match your AutoCAD drawing CRS" style="background:#0f172a;color:#9ca3af;border:1px solid #374151;border-radius:5px;padding:3px 5px;font-size:11px;cursor:pointer;height:28px;max-width:88px" onchange="S.exportCRS=this.value;localStorage.setItem('exportCRS',this.value)"></select>
-    <button class="hbtn" onclick="exportDXF()" title="Export DXF — open in AutoCAD with MAPCSASSIGN matching selected CRS">
+    <button class="hbtn" onclick="exportDXF()" title="Export DXF (WGS84) — import via MAPIMPORT in AutoCAD Map 3D, source CRS = LL84">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       DXF
     </button>
@@ -3099,35 +3097,6 @@ function _utmWKT(zone,northern){
     +`PARAMETER["false_northing",${fn}],UNIT["metre",1],AUTHORITY["EPSG","${epsg}"]]`;
 }
 
-// ── CRS list for geo DXF export ───────────────────────────────────────────────
-const CRS_LIST=[
-  {id:'fl-e', label:'FL East',  p4:'+proj=lcc +lat_1=24.3333333333 +lat_2=26.6666666667 +lat_0=24.3333333333 +lon_0=-81 +x_0=200000.0001016 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
-  {id:'fl-w', label:'FL West',  p4:'+proj=lcc +lat_1=24.3333333333 +lat_2=26.6666666667 +lat_0=24.3333333333 +lon_0=-82 +x_0=200000.0001016 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
-  {id:'fl-n', label:'FL North', p4:'+proj=lcc +lat_1=29.5833333333 +lat_2=30.75 +lat_0=29 +lon_0=-84.5 +x_0=600000 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
-  {id:'ga-e', label:'GA East',  p4:'+proj=lcc +lat_1=31 +lat_2=32 +lat_0=30 +lon_0=-82.1666666667 +x_0=200000.0001016 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
-  {id:'ga-w', label:'GA West',  p4:'+proj=lcc +lat_1=30 +lat_2=31.8333333333 +lat_0=30 +lon_0=-84.1666666667 +x_0=700000 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
-  {id:'nc',   label:'NC',       p4:'+proj=lcc +lat_1=34.3333333333 +lat_2=36.1666666667 +lat_0=33.75 +lon_0=-79 +x_0=609601.22 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
-  {id:'sc',   label:'SC',       p4:'+proj=lcc +lat_1=32.5 +lat_2=34.8333333333 +lat_0=31.8333333333 +lon_0=-81 +x_0=609600 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
-  {id:'tx-n', label:'TX North', p4:'+proj=lcc +lat_1=34.65 +lat_2=36.1833333333 +lat_0=34 +lon_0=-101.5 +x_0=200000.0001016 +y_0=1000000.0001016 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
-  {id:'tx-nc',label:'TX N-Ctr', p4:'+proj=lcc +lat_1=32.1333333333 +lat_2=33.9666666667 +lat_0=31.6666666667 +lon_0=-98.5 +x_0=600000 +y_0=2000000.0001016 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
-  {id:'tx-c', label:'TX Cent',  p4:'+proj=lcc +lat_1=30.1166666667 +lat_2=31.8833333333 +lat_0=29.6666666667 +lon_0=-100.3333333333 +x_0=700000 +y_0=3000000 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
-  {id:'tx-sc',label:'TX S-Ctr', p4:'+proj=lcc +lat_1=28.3833333333 +lat_2=30.2833333333 +lat_0=27.8333333333 +lon_0=-99 +x_0=600000 +y_0=4000000.0001016 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
-  {id:'tx-s', label:'TX South', p4:'+proj=lcc +lat_1=26.1666666667 +lat_2=27.8333333333 +lat_0=25.6666666667 +lon_0=-98.5 +x_0=300000.0001016 +y_0=5000000.0001016 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
-  {id:'ca-v', label:'CA V',     p4:'+proj=lcc +lat_1=34.0333333333 +lat_2=35.4666666667 +lat_0=33.5 +lon_0=-118 +x_0=2000000.0001016 +y_0=500000.0001016 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
-  {id:'ny-li',label:'NY L.I.',  p4:'+proj=lcc +lat_1=40.6666666667 +lat_2=41.0333333333 +lat_0=40.1666666667 +lon_0=-74 +x_0=300000.0001016 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
-  {id:'va-n', label:'VA North', p4:'+proj=lcc +lat_1=38.0333333333 +lat_2=39.2 +lat_0=37.6666666667 +lon_0=-78.5 +x_0=3500000.0001016 +y_0=2000000.0001016 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
-  {id:'va-s', label:'VA South', p4:'+proj=lcc +lat_1=36.7666666667 +lat_2=37.9666666667 +lat_0=36.3333333333 +lon_0=-78.5 +x_0=3500000.0001016 +y_0=1000000.0001016 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=us-ft +no_defs'},
-];
-function _initCrsSelector(){
-  const sel=document.getElementById('dxf-crs');
-  if(!sel) return;
-  sel.innerHTML=CRS_LIST.map(c=>`<option value="${c.id}">${c.label}</option>`).join('');
-  const saved=localStorage.getItem('exportCRS')||'fl-e';
-  sel.value=CRS_LIST.find(c=>c.id===saved)?saved:'fl-e';
-  S.exportCRS=sel.value;
-}
-setTimeout(_initCrsSelector,0);
-
 async function exportDXF(){
   try{
   const data=getExportData();
@@ -3136,27 +3105,28 @@ async function exportDXF(){
 
   const isGeo=S.aerial&&S.leaflet;
   let toXY,ctrLL=null,ctrFt=null;
+  let extMinX,extMinY,extMaxX,extMaxY;
   if(isGeo){
+    // Export in WGS84 decimal degrees (X=longitude, Y=latitude).
+    // AutoCAD Map 3D: use MAPIMPORT → set Input CRS to "LL84" (WGS84 Geographic).
+    // AutoCAD's own engine reprojects to your drawing CRS — identical to KML import.
     ctrLL=S.leaflet.getCenter();
-    const crsId=S.exportCRS||'fl-e';
-    const crsDef=CRS_LIST.find(c=>c.id===crsId)||CRS_LIST[0];
-    if(typeof proj4==='undefined') throw new Error('proj4 library failed to load. Check internet connection.');
-    // proj4(def, [lng, lat]) projects from WGS84 to the target CRS.
-    // With +units=us-ft in the proj4 string, output is directly in US Survey Feet.
-    // Do NOT convert to metres first — that corrupts the false easting value.
-    const toSP=(lng,lat)=>{const r=proj4(crsDef.p4,[lng,lat]);return{x:r[0],y:r[1]};};
-    const c=toSP(ctrLL.lng,ctrLL.lat);
-    ctrFt={easting:c.x,northing:c.y};
+    ctrFt={easting:ctrLL.lng,northing:ctrLL.lat};
     toXY=pt=>{
       const ll=S.leaflet.containerPointToLatLng([pt.x,pt.y]);
-      return toSP(ll.lng,ll.lat);
+      return{x:ll.lng,y:ll.lat};
     };
+    const bnds=S.leaflet.getBounds();
+    extMinX=bnds.getWest(); extMinY=bnds.getSouth();
+    extMaxX=bnds.getEast(); extMaxY=bnds.getNorth();
   } else {
     toXY=pt=>({x:pt.x/effectivePpm,y:-pt.y/effectivePpm});
+    const _sz={x:800,y:600};
+    extMinX=0; extMinY=0;
+    extMaxX=_sz.x/effectivePpm; extMaxY=_sz.y/effectivePpm;
   }
-  // Viewport in feet (effectivePpm is px/ft)
-  const _sz=isGeo?S.leaflet.getSize():{x:800,y:600};
-  const _dxfW=_sz.x/effectivePpm, _dxfH=_sz.y/effectivePpm;
+  // _dxfW/_dxfH used for non-geo EXTMIN/EXTMAX only
+  const _dxfW=extMaxX-extMinX, _dxfH=extMaxY-extMinY;
 
   // ── Hybrid arc-fit + RDP path export ─────────────────────────────────
   // Ramer-Douglas-Peucker simplification (eps in same units as pts).
@@ -3397,16 +3367,17 @@ async function exportDXF(){
     return;
   }
 
-  // ── GEO: R12 DXF in State Plane US Survey Feet ──────────────────────
+  // ── GEO: R12 DXF in WGS84 decimal degrees (X=lon, Y=lat) ─────────────
+  // Use MAPIMPORT in AutoCAD Map 3D with Input CRS = "LL84" (WGS84 Geographic).
+  // AutoCAD's engine reprojects to your drawing CRS — same as KML import.
   const hasTrailer=tracks.tL&&tracks.tL.length>0;
   const ld=[['CENTERLINE',2],['WHEEL-PATHS',4],['VEHICLE-OUTLINE',7]];
 
-  // $INSUNITS=2 (feet). Coordinates already in US Survey Feet from proj4js.
   let d='0\nSECTION\n2\nHEADER\n';
   d+='9\n$ACADVER\n1\nAC1009\n';
-  d+='9\n$INSUNITS\n70\n2\n';
-  d+=`9\n$EXTMIN\n10\n${(ctrFt.easting-_dxfW/2).toFixed(2)}\n20\n${(ctrFt.northing-_dxfH/2).toFixed(2)}\n30\n0.0\n`;
-  d+=`9\n$EXTMAX\n10\n${(ctrFt.easting+_dxfW/2).toFixed(2)}\n20\n${(ctrFt.northing+_dxfH/2).toFixed(2)}\n30\n0.0\n`;
+  d+='9\n$INSUNITS\n70\n0\n'; // 0 = unitless (coordinates are decimal degrees)
+  d+=`9\n$EXTMIN\n10\n${extMinX.toFixed(8)}\n20\n${extMinY.toFixed(8)}\n30\n0.0\n`;
+  d+=`9\n$EXTMAX\n10\n${extMaxX.toFixed(8)}\n20\n${extMaxY.toFixed(8)}\n30\n0.0\n`;
   d+='0\nENDSEC\n';
   d+='0\nSECTION\n2\nTABLES\n';
   d+='0\nTABLE\n2\nLTYPE\n70\n1\n';
@@ -3429,6 +3400,16 @@ async function exportDXF(){
   a.href=URL.createObjectURL(blob);
   a.download=`${stem}.dxf`;
   a.click();
+  // Brief reminder of the import workflow
+  setTimeout(()=>alert(
+    'DXF exported in WGS84 (decimal degrees).\n\n'+
+    'To import into AutoCAD Map 3D:\n'+
+    '  1. Command: MAPIMPORT\n'+
+    '  2. Select the .dxf file → Open\n'+
+    '  3. Input Coordinate System → "LL84"\n'+
+    '  4. Click Import\n\n'+
+    'Same workflow as your KML import — aligns perfectly.'
+  ),100);
   }catch(err){alert('DXF export error: '+err.message);}
 }
 

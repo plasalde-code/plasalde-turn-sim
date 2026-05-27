@@ -3423,20 +3423,36 @@ async function exportDXF(){
   a.download=`${stem}.dxf`;
   a.click();
 
-  // Toast: inform user of coordinate system
-  (function showDxfToast(){
-    const t=document.createElement('div');
-    t.innerHTML='<strong>DXF saved</strong> — coordinates in <strong>FL83-EF</strong> (Florida State Plane East, US Survey Feet).<br><span style="font-size:11px;opacity:.8">Open directly in AutoCAD Map 3D with FL83-E drawing CRS.</span>';
-    Object.assign(t.style,{
-      position:'fixed',bottom:'28px',left:'50%',transform:'translateX(-50%)',
-      background:'#1e3a5f',border:'1px solid #3b82f6',color:'#e0f0ff',
-      padding:'12px 20px',borderRadius:'8px',fontSize:'13px',lineHeight:'1.5',
-      boxShadow:'0 4px 16px rgba(0,0,0,.5)',zIndex:'9999',
-      textAlign:'center',maxWidth:'420px',
-      transition:'opacity .4s',opacity:'1',pointerEvents:'none'
+  // Modal: inform user of coordinate system, requires OK click to dismiss
+  (function showDxfModal(){
+    const overlay=document.createElement('div');
+    Object.assign(overlay.style,{
+      position:'fixed',inset:'0',background:'rgba(0,0,0,.6)',
+      display:'flex',alignItems:'center',justifyContent:'center',zIndex:'10000'
     });
-    document.body.appendChild(t);
-    setTimeout(()=>{t.style.opacity='0';setTimeout(()=>t.remove(),450);},4500);
+    overlay.innerHTML=`
+      <div style="background:#0f172a;border:2px solid #3b82f6;border-radius:12px;
+                  padding:32px 36px;max-width:420px;width:90%;text-align:center;
+                  box-shadow:0 8px 40px rgba(0,0,0,.7);font-family:inherit">
+        <div style="font-size:36px;margin-bottom:12px">📐</div>
+        <div style="font-size:18px;font-weight:700;color:#f1f5f9;margin-bottom:10px">DXF Exported</div>
+        <div style="font-size:14px;color:#94a3b8;line-height:1.6;margin-bottom:8px">
+          File saved in coordinate system:
+        </div>
+        <div style="font-size:20px;font-weight:800;color:#60a5fa;letter-spacing:.5px;margin-bottom:8px">
+          FL83-EF
+        </div>
+        <div style="font-size:13px;color:#94a3b8;line-height:1.6;margin-bottom:24px">
+          Florida State Plane East — NAD83<br>US Survey Feet<br><br>
+          <span style="color:#cbd5e1">Open directly in AutoCAD Map 3D<br>with <strong style="color:#f1f5f9">FL83-E</strong> drawing CRS.</span>
+        </div>
+        <button id="dxf-ok-btn" style="background:#3b82f6;border:none;border-radius:8px;
+                color:#fff;font-size:15px;font-weight:700;padding:10px 40px;
+                cursor:pointer;letter-spacing:.3px;width:100%">OK</button>
+      </div>`;
+    document.body.appendChild(overlay);
+    overlay.querySelector('#dxf-ok-btn').onclick=()=>overlay.remove();
+    overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove();});
   })();
   }catch(err){alert('DXF export error: '+err.message);}
 }

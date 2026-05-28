@@ -3299,10 +3299,10 @@ async function exportDXF(){
           const sign=b>0?1:-1;                  // b>0=CCW=center left; b<0=CW=center right
           const cx=(seg.p1.x+seg.p2.x)/2+sign*lpx*d;
           const cy=(seg.p1.y+seg.p2.y)/2+sign*lpy*d;
-          // Convert center + endpoints to State Plane
-          const cSP=toDxf({x:cx*ppm,y:-cy*ppm});
-          const p1SP=toDxf({x:seg.p1.x*ppm,y:-seg.p1.y*ppm});
-          const p2SP=toDxf({x:seg.p2.x*ppm,y:-seg.p2.y*ppm});
+          // Convert center + endpoints to State Plane (toDxf handles ppm/y-flip internally)
+          const cSP=toDxf({x:cx,y:cy});
+          const p1SP=toDxf(seg.p1);
+          const p2SP=toDxf(seg.p2);
           const RSP=Math.sqrt((p1SP.x-cSP.x)**2+(p1SP.y-cSP.y)**2);
           if(RSP>0.01){
             const a1=((Math.atan2(p1SP.y-cSP.y,p1SP.x-cSP.x)*D)%360+360)%360;

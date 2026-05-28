@@ -3255,10 +3255,10 @@ async function exportDXF(){
     return segs;
   }
 
-  // Emit geo path as R12 POLYLINE (straight) + ARC entities (curves).
-  // ARC entities are unambiguous in every DXF version — no bulge format issues.
-  // Straight sections → RDP-simplified POLYLINE/VERTEX.
-  // Curved sections → DXF ARC entity with computed center/radius/angles.
+  // Emit geo path as a single R12 POLYLINE/VERTEX entity with group-42 bulge.
+  // One entity per path = no entity boundaries = no visual breaks at arc/line transitions.
+  // Straight sections → RDP-simplified vertices (bulge=0).
+  // Curved sections → bulge encoded on the arc's start vertex; end vertex appended with bulge=0.
   function emitGeoR12(rawPts,layer){
     if(!rawPts||rawPts.length<2) return'';
     const ppm=effectivePpm;
@@ -3266,58 +3266,34 @@ async function exportDXF(){
     const segs=pathToSegs(canvasPts);
     if(!segs.length) return'';
     const toDxf=cp=>toXY({x:cp.x*ppm,y:-cp.y*ppm});
-    const D=180/Math.PI;
-    let out='';
-    let lineVerts=[];
 
-    function flushPoly(){
-      if(lineVerts.length<2){lineVerts=[];return;}
-      let s=`0\nPOLYLINE\n8\n${layer}\n66\n1\n10\n0.0\n20\n0.0\n30\n0.0\n70\n0\n`;
-      for(const v of lineVerts)
-        s+=`0\nVERTEX\n8\n${layer}\n10\n${v.x.toFixed(4)}\n20\n${v.y.toFixed(4)}\n30\n0.0\n70\n0\n`;
-      out+=s+`0\nSEQEND\n8\n${layer}\n`;
-      lineVerts=[];
-    }
-
-    lineVerts.push(toDxf(segs[0].p1));
+    // Build vertex list: [{pt:{x,y}, bulge:number}]
+    // group-42 bulge on vertex N = arc from vertex N to vertex N+1
+    const verts=[];
+    verts.push({pt:toDxf(segs[0].p1),bulge:0});
 
     for(const seg of segs){
       if(seg.t==='L'){
         const sub=canvasPts.slice(seg.i1,seg.i2+1);
         const simp=rdp(sub,0.5);
-        for(let k=1;k<simp.length;k++) lineVerts.push(toDxf(simp[k]));
+        for(let k=1;k<simp.length;k++) verts.push({pt:toDxf(simp[k]),bulge:0});
       } else {
-        // Compute arc center in canvas-feet space (y-up), then project to State Plane
-        const b=seg.bulge;
-        const theta=4*Math.atan(Math.abs(b));
-        const dx=seg.p2.x-seg.p1.x, dy=seg.p2.y-seg.p1.y;
-        const chord=Math.sqrt(dx*dx+dy*dy);
-        if(chord>1e-6&&theta>1e-6){
-          const R=chord/(2*Math.sin(theta/2));
-          const d=Math.sqrt(Math.max(0,R*R-(chord/2)*(chord/2)));
-          const lpx=-dy/chord, lpy=dx/chord;   // left-perp of p1→p2 (y-up)
-          const sign=b>0?1:-1;                  // b>0=CCW=center left; b<0=CW=center right
-          const cx=(seg.p1.x+seg.p2.x)/2+sign*lpx*d;
-          const cy=(seg.p1.y+seg.p2.y)/2+sign*lpy*d;
-          // Convert center + endpoints to State Plane (toDxf handles ppm/y-flip internally)
-          const cSP=toDxf({x:cx,y:cy});
-          const p1SP=toDxf(seg.p1);
-          const p2SP=toDxf(seg.p2);
-          const RSP=Math.sqrt((p1SP.x-cSP.x)**2+(p1SP.y-cSP.y)**2);
-          if(RSP>0.01){
-            const a1=((Math.atan2(p1SP.y-cSP.y,p1SP.x-cSP.x)*D)%360+360)%360;
-            const a2=((Math.atan2(p2SP.y-cSP.y,p2SP.x-cSP.x)*D)%360+360)%360;
-            // DXF ARC goes CCW; b>0=CCW: start=a1→end=a2; b<0=CW: start=a2→end=a1
-            const sa=b>0?a1:a2, ea=b>0?a2:a1;
-            flushPoly();
-            out+=`0\nARC\n8\n${layer}\n10\n${cSP.x.toFixed(4)}\n20\n${cSP.y.toFixed(4)}\n30\n0.0\n40\n${RSP.toFixed(4)}\n50\n${sa.toFixed(6)}\n51\n${ea.toFixed(6)}\n`;
-          }
-        }
-        lineVerts.push(toDxf(seg.p2));
+        // Set bulge on the last vertex (arc start) then push arc end
+        verts[verts.length-1].bulge=seg.bulge;
+        verts.push({pt:toDxf(seg.p2),bulge:0});
       }
     }
-    flushPoly();
-    return out;
+
+    if(verts.length<2) return'';
+
+    // Emit single POLYLINE entity
+    let s=`0\nPOLYLINE\n8\n${layer}\n66\n1\n10\n0.0\n20\n0.0\n30\n0.0\n70\n0\n`;
+    for(const v of verts){
+      s+=`0\nVERTEX\n8\n${layer}\n10\n${v.pt.x.toFixed(4)}\n20\n${v.pt.y.toFixed(4)}\n30\n0.0\n70\n0\n`;
+      if(v.bulge!==0) s+=`42\n${v.bulge.toFixed(6)}\n`;
+    }
+    s+=`0\nSEQEND\n8\n${layer}\n`;
+    return s;
   }
 
   // Compute vehicle body rectangle corners (canvas px) for one frame.

@@ -3255,8 +3255,10 @@ async function exportDXF(){
     return segs;
   }
 
-  // Emit one R12 POLYLINE (geo mode).
-  // Arc sections → single DXF bulge vertex with R = arc_length/heading_change.
+  // Emit LWPOLYLINE (DXF 2000 / AC1015) for geo mode.
+  // LWPOLYLINE is a single entity — no SEQEND, no sub-entities.
+  // Bulge (group 42) on each vertex is universally supported in this format.
+  // Arc sections → one vertex with bulge = tan(theta/4).
   // Straight sections → RDP sub-sampled (0.5 ft) to follow actual alignment.
   function emitGeoR12(rawPts,layer){
     if(!rawPts||rawPts.length<2) return'';
@@ -3281,12 +3283,23 @@ async function exportDXF(){
     const lastXY=toDxf(segs[segs.length-1].p2);
     verts.push({x:lastXY.x,y:lastXY.y,b:0});
     if(verts.length<2) return'';
-    let s=`0\nPOLYLINE\n8\n${layer}\n66\n1\n10\n0.0\n20\n0.0\n30\n0.0\n70\n0\n`;
+    // LWPOLYLINE: group 90 = vertex count, 70 = flags (0=open)
+    let s=`0\nLWPOLYLINE\n8\n${layer}\n90\n${verts.length}\n70\n0\n`;
     for(const v of verts){
-      s+=`0\nVERTEX\n8\n${layer}\n10\n${v.x.toFixed(4)}\n20\n${v.y.toFixed(4)}\n30\n0.0\n`;
+      s+=`10\n${v.x.toFixed(4)}\n20\n${v.y.toFixed(4)}\n`;
       if(Math.abs(v.b)>1e-10) s+=`42\n${v.b.toFixed(8)}\n`;
     }
-    return s+`0\nSEQEND\n8\n${layer}\n`;
+    return s;
+  }
+
+  // Closed LWPOLYLINE box for geo vehicle outlines.
+  function emitGeoBox(corners,layer){
+    let s=`0\nLWPOLYLINE\n8\n${layer}\n90\n${corners.length}\n70\n1\n`; // 70=1 closed
+    for(const c of corners){
+      const xy=toXY(c);
+      s+=`10\n${xy.x.toFixed(4)}\n20\n${xy.y.toFixed(4)}\n`;
+    }
+    return s;
   }
 
   // Compute vehicle body rectangle corners (canvas px) for one frame.
@@ -3387,14 +3400,14 @@ async function exportDXF(){
     return;
   }
 
-  // ── GEO: R12 DXF in FL83-E State Plane (US Survey Feet) ─────────────
-  // Coordinates are already in EPSG:2236 — open directly in AutoCAD Map 3D
-  // with FL83-E drawing CRS. No MAPIMPORT or extra steps needed.
+  // ── GEO: DXF 2000 (AC1015) in FL83-E State Plane (US Survey Feet) ───
+  // Uses LWPOLYLINE entities — bulge arcs are universally supported.
+  // Coordinates are EPSG:2236 — open directly in AutoCAD Map 3D FL83-E.
   const hasTrailer=tracks.tL&&tracks.tL.length>0;
   const ld=[['CENTERLINE',2],['WHEEL-PATHS',4],['VEHICLE-OUTLINE',7]];
 
   let d='0\nSECTION\n2\nHEADER\n';
-  d+='9\n$ACADVER\n1\nAC1009\n';
+  d+='9\n$ACADVER\n1\nAC1015\n'; // DXF 2000 — required for LWPOLYLINE
   d+='9\n$INSUNITS\n70\n2\n'; // 2 = feet (US Survey Feet — FL83-E State Plane)
   d+=`9\n$EXTMIN\n10\n${extMinX.toFixed(8)}\n20\n${extMinY.toFixed(8)}\n30\n0.0\n`;
   d+=`9\n$EXTMAX\n10\n${extMaxX.toFixed(8)}\n20\n${extMaxY.toFixed(8)}\n30\n0.0\n`;
@@ -3412,7 +3425,7 @@ async function exportDXF(){
   d+=emitGeoR12(tracks.p1L,'WHEEL-PATHS')+emitGeoR12(tracks.p1R,'WHEEL-PATHS');
   if(hasTrailer) d+=emitGeoR12(tracks.tL,'WHEEL-PATHS')+emitGeoR12(tracks.tR,'WHEEL-PATHS');
   for(const f of sampleFrames(getBodyDisplayFrames(pathPts,frames),8))
-    for(const box of getFrameBoxes(f)) d+=emitBox(box,'VEHICLE-OUTLINE');
+    for(const box of getFrameBoxes(f)) d+=emitGeoBox(box,'VEHICLE-OUTLINE');
   d+='0\nENDSEC\n0\nEOF\n';
 
   const blob=new Blob([d],{type:'text/plain'});

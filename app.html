@@ -2083,35 +2083,24 @@ function decimateCoords(coords, maxPts=300){
 
 function parseKML(xmlText){
   const doc=new DOMParser().parseFromString(xmlText,'text/xml');
-  const features=[];
+  const raw=[];
   const placemarks=Array.from(doc.querySelectorAll('Placemark'));
   for(const pm of placemarks){
     const name=pm.querySelector('name')?.textContent?.trim()||'';
-    // LineString
-    for(const el of pm.querySelectorAll('LineString')){
-      const raw=parseKMLCoords(el.querySelector('coordinates')?.textContent||'');
-      const coords=decimateCoords(raw);
-      if(coords.length>1) features.push({type:'line',coords,name});
-    }
-    // MultiGeometry LineStrings
-    for(const el of pm.querySelectorAll('MultiGeometry LineString')){
-      const raw=parseKMLCoords(el.querySelector('coordinates')?.textContent||'');
-      const coords=decimateCoords(raw);
-      if(coords.length>1) features.push({type:'line',coords,name});
-    }
-    // Polygon outer ring
-    for(const el of pm.querySelectorAll('Polygon')){
-      const raw=parseKMLCoords(el.querySelector('outerBoundaryIs coordinates,LinearRing coordinates')?.textContent||'');
-      const coords=decimateCoords(raw);
-      if(coords.length>2) features.push({type:'polygon',coords,name});
-    }
-    // Point
-    for(const el of pm.querySelectorAll('Point')){
-      const coords=parseKMLCoords(el.querySelector('coordinates')?.textContent||'');
-      if(coords.length>0) features.push({type:'point',coords:coords[0],name});
-    }
+    for(const el of pm.querySelectorAll('LineString'))
+      { const c=parseKMLCoords(el.querySelector('coordinates')?.textContent||''); if(c.length>1) raw.push({type:'line',coords:c,name}); }
+    for(const el of pm.querySelectorAll('MultiGeometry LineString'))
+      { const c=parseKMLCoords(el.querySelector('coordinates')?.textContent||''); if(c.length>1) raw.push({type:'line',coords:c,name}); }
+    for(const el of pm.querySelectorAll('Polygon'))
+      { const c=parseKMLCoords(el.querySelector('outerBoundaryIs coordinates,LinearRing coordinates')?.textContent||''); if(c.length>2) raw.push({type:'polygon',coords:c,name}); }
+    for(const el of pm.querySelectorAll('Point'))
+      { const c=parseKMLCoords(el.querySelector('coordinates')?.textContent||''); if(c.length>0) raw.push({type:'point',coords:c[0],name}); }
   }
-  return features;
+  // Budget: keep total canvas points under 80 000 so the browser stays responsive.
+  // Points per feature = budget / count, clamped to [8, 200].
+  const POINT_BUDGET=80000;
+  const ptsPerFeat=Math.max(8,Math.min(200,Math.floor(POINT_BUDGET/Math.max(1,raw.length))));
+  return raw.map(f=>f.type==='point'?f:{...f,coords:decimateCoords(f.coords,ptsPerFeat)});
 }
 
 function centerMapOnKML(features){

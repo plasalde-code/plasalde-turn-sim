@@ -2084,35 +2084,29 @@ function decimateCoords(coords, maxPts=300){
 function parseKML(xmlText){
   const doc=new DOMParser().parseFromString(xmlText,'text/xml');
   const features=[];
-  const MAX_FEATURES=300;
   const placemarks=Array.from(doc.querySelectorAll('Placemark'));
   for(const pm of placemarks){
-    if(features.length>=MAX_FEATURES) break;
     const name=pm.querySelector('name')?.textContent?.trim()||'';
     // LineString
     for(const el of pm.querySelectorAll('LineString')){
-      if(features.length>=MAX_FEATURES) break;
       const raw=parseKMLCoords(el.querySelector('coordinates')?.textContent||'');
       const coords=decimateCoords(raw);
       if(coords.length>1) features.push({type:'line',coords,name});
     }
     // MultiGeometry LineStrings
     for(const el of pm.querySelectorAll('MultiGeometry LineString')){
-      if(features.length>=MAX_FEATURES) break;
       const raw=parseKMLCoords(el.querySelector('coordinates')?.textContent||'');
       const coords=decimateCoords(raw);
       if(coords.length>1) features.push({type:'line',coords,name});
     }
     // Polygon outer ring
     for(const el of pm.querySelectorAll('Polygon')){
-      if(features.length>=MAX_FEATURES) break;
       const raw=parseKMLCoords(el.querySelector('outerBoundaryIs coordinates,LinearRing coordinates')?.textContent||'');
       const coords=decimateCoords(raw);
       if(coords.length>2) features.push({type:'polygon',coords,name});
     }
     // Point
     for(const el of pm.querySelectorAll('Point')){
-      if(features.length>=MAX_FEATURES) break;
       const coords=parseKMLCoords(el.querySelector('coordinates')?.textContent||'');
       if(coords.length>0) features.push({type:'point',coords:coords[0],name});
     }

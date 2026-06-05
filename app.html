@@ -1608,21 +1608,26 @@ function render(){
     // ── Kinematic simulation ──────────────────────────────────────
     const frames=simulateAxles(simPath,S.vehicle,effectivePpm);
 
-    // ── Reverse constraint check (jackknife for articulated vehicles)
-    let reverseBlocked=false, reverseBlockReason='';
-    if(S.reverse){
+    // ── Articulation / jackknife check (articulated vehicles, BOTH directions).
+    // The trailer cannot exceed ~75° relative to the tractor without jackknifing.
+    // Reverse-curve combinations too tight for the trailer to recover between
+    // them trip this in forward motion too (the swept path crosses itself).
+    let artBlocked=false, artBlockReason='';
+    if(S.vehicle.L2>0){
       const rc=checkReverseConstraints(frames,S.vehicle);
-      updateReverseAngleDisplay(rc,S.vehicle);
-      if(!rc.possible){reverseBlocked=true;reverseBlockReason=rc.reason;}
+      if(S.reverse) updateReverseAngleDisplay(rc,S.vehicle);
+      if(!rc.possible){artBlocked=true;artBlockReason=rc.reason;}
     }
 
-    if(reverseBlocked){
-      // Jackknife — show blocked state (nodes + radius annotations only)
+    if(artBlocked){
+      // Jackknife / impossible articulation — show blocked state (no swept path)
       document.getElementById('min-warn').style.display='none';
       const jkLbl=new Konva.Label({x:8,y:8,listening:false,opacity:.97});
       jkLbl.add(new Konva.Tag({fill:'rgba(127,29,29,.93)',cornerRadius:5,stroke:'#ef4444',strokeWidth:1}));
       jkLbl.add(new Konva.Text({
-        text:`⛔  JACKKNIFE RISK — ${S.vehicle.code} reverse blocked\n    ${reverseBlockReason}\n    Increase curve radius or shorten the backing distance`,
+        text:S.reverse
+          ?`⛔  JACKKNIFE RISK — ${S.vehicle.code} reverse blocked\n    ${artBlockReason}\n    Increase curve radius or shorten the backing distance`
+          :`⛔  ${S.vehicle.code} cannot make this maneuver\n    ${artBlockReason}\n    Reverse curves too tight for the trailer — spread the nodes or increase radii`,
         fontSize:12,fontStyle:'bold',fill:'#fca5a5',padding:7,lineHeight:1.6
       }));
       mainLayer.add(jkLbl);
@@ -1714,7 +1719,7 @@ function render(){
       }
     }
 
-    } // end !reverseBlocked
+    } // end !artBlocked
   } else {
     // ── Path blocked: vehicle cannot physically make this turn ───
     document.getElementById('min-warn').style.display='none';

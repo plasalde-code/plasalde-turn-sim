@@ -1626,6 +1626,17 @@ function render(){
       artBlocked=true;
       artBlockReason='Path crosses itself — the curve loops tighter than the vehicle can physically steer';
     }
+    // Self-crossing TRAILER path: even when articulation stays under the
+    // jackknife limit and the centerline is clean, reverse curves too close
+    // together force the trailer's own path to loop over itself — physically
+    // impossible. Check the trailer rear-axle track for self-intersection.
+    if(!artBlocked && S.vehicle.L2>0){
+      const trailerTrack=frames.map(f=>f.trailAxle).filter(Boolean);
+      if(trailerTrack.length>3 && pathSelfIntersects(trailerTrack)){
+        artBlocked=true;
+        artBlockReason='Trailer path crosses itself — the trailer cannot follow this combination of curves';
+      }
+    }
 
     if(artBlocked){
       // Jackknife / impossible articulation / self-crossing — show blocked state (no swept path)

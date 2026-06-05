@@ -1618,16 +1618,24 @@ function render(){
       if(S.reverse) updateReverseAngleDisplay(rc,S.vehicle);
       if(!rc.possible){artBlocked=true;artBlockReason=rc.reason;}
     }
+    // Self-crossing centerline: the front axle cannot trace a path that loops
+    // over itself — the curve is tighter than the vehicle can steer. selfX
+    // already skips the start/end zones so legitimate U-turn entry/exit sweeps
+    // are not falsely flagged.
+    if(selfX && !artBlocked){
+      artBlocked=true;
+      artBlockReason='Path crosses itself — the curve loops tighter than the vehicle can physically steer';
+    }
 
     if(artBlocked){
-      // Jackknife / impossible articulation — show blocked state (no swept path)
+      // Jackknife / impossible articulation / self-crossing — show blocked state (no swept path)
       document.getElementById('min-warn').style.display='none';
       const jkLbl=new Konva.Label({x:8,y:8,listening:false,opacity:.97});
       jkLbl.add(new Konva.Tag({fill:'rgba(127,29,29,.93)',cornerRadius:5,stroke:'#ef4444',strokeWidth:1}));
       jkLbl.add(new Konva.Text({
         text:S.reverse
           ?`⛔  JACKKNIFE RISK — ${S.vehicle.code} reverse blocked\n    ${artBlockReason}\n    Increase curve radius or shorten the backing distance`
-          :`⛔  ${S.vehicle.code} cannot make this maneuver\n    ${artBlockReason}\n    Reverse curves too tight for the trailer — spread the nodes or increase radii`,
+          :`⛔  ${S.vehicle.code} cannot make this maneuver\n    ${artBlockReason}\n    Spread the nodes apart or increase the curve radii`,
         fontSize:12,fontStyle:'bold',fill:'#fca5a5',padding:7,lineHeight:1.6
       }));
       mainLayer.add(jkLbl);

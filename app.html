@@ -1599,7 +1599,9 @@ function render(){
   // ── Physical possibility check ────────────────────────────────
   // In reverse: Rmin is a forward steering limit — skip it.
   // Jackknife detection handles the real reverse constraint.
-  const minCurveR=getMinCurveRadius();
+  // Use the ACTUAL fitted radius (clamped by node spacing) — not the stored
+  // node radius — so movements that are too tight to physically fit are caught.
+  const minCurveR=getMinActualCurveRadius(vs,curves,effectivePpm);
   const pathImpossible=!S.reverse && minCurveR<Infinity && S.vehicle.Rmin>minCurveR;
 
   if(!pathImpossible){
@@ -1980,11 +1982,38 @@ function checkSharpCorners(){
 
 // Returns tightest non-zero curve radius (ft) across all interior vertices.
 // Returns Infinity when no curves are set (no constraint active).
+// NOTE: uses the STORED node radius — not the actual fitted arc. For the
+// physical-possibility check use getMinActualCurveRadius() instead.
 function getMinCurveRadius(){
   let minR=Infinity;
   const vs=S.vertices;
   for(let i=1;i<vs.length-1;i++){
     if(vs[i].radius>0) minR=Math.min(minR,vs[i].radius);
+  }
+  return minR;
+}
+
+// Returns the tightest ACTUAL fitted curve radius (ft) — the radius after
+// computeCurve() clamps it to fit the available node spacing. This is the
+// real geometry the vehicle must follow, so it is what the physical
+// possibility check must compare against. A requested curve that cannot be
+// fitted at all (nodes too close for any arc) counts as radius 0 (impossible).
+// Near-straight nodes (tiny deflection) are ignored.
+function getMinActualCurveRadius(vs,curves,ppm){
+  let minR=Infinity;
+  for(let i=1;i<vs.length-1;i++){
+    if(vs[i].radius<=0) continue; // sharp corner — handled by checkSharpCorners()
+    const c=curves[i];
+    if(c){
+      minR=Math.min(minR,c.R/ppm);
+    } else {
+      // computeCurve returned null: either a near-straight node (ignore) or
+      // a real bend that no arc could fit (impossible → radius 0).
+      const d1=vnorm(vsub(vs[i],vs[i-1]));
+      const d2=vnorm(vsub(vs[i+1],vs[i]));
+      const dp=Math.max(-1,Math.min(1,vdot(d1,d2)));
+      if(Math.acos(dp)>=0.005) minR=0;
+    }
   }
   return minR;
 }

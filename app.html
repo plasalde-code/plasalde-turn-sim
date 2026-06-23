@@ -1250,15 +1250,13 @@ function buildSweptEnvelopeUnion(frames,veh,ppm,pathPts){
   }
   for(let i=0;i<frames.length;i++){
     const f=frames[i];
-    const pt=pathPts[i];
-    const fdir=(pt&&(pt.tx||pt.ty))?{x:pt.tx,y:pt.ty}:vnorm(vsub(f.frontAxle,f.pivotAxle));
-    const flft=vleft(fdir);
+    // Tractor body axis (matches buildFrameQuads) — overhang is rigid with body.
     const tdir=vnorm(vsub(f.frontAxle,f.pivotAxle));
     const tlft=vleft(tdir);
     const corners=[];
-    const fb=vadd(f.frontAxle,vscl(fdir,Fo));
-    corners.push(vadd(fb,vscl(flft,HW)),vadd(fb,vscl(flft,-HW)));
-    corners.push(vadd(f.frontAxle,vscl(flft,HW)),vadd(f.frontAxle,vscl(flft,-HW)));
+    const fb=vadd(f.frontAxle,vscl(tdir,Fo));
+    corners.push(vadd(fb,vscl(tlft,HW)),vadd(fb,vscl(tlft,-HW)));
+    corners.push(vadd(f.frontAxle,vscl(tlft,HW)),vadd(f.frontAxle,vscl(tlft,-HW)));
     if(!f.trailAxle){
       const rb=vsub(f.pivotAxle,vscl(tdir,Ro));
       corners.push(vadd(rb,vscl(tlft,HW)),vadd(rb,vscl(tlft,-HW)));
@@ -1811,6 +1809,14 @@ function render(){
         swLayer.add(grp);
         grp.cache();
         grp.opacity(0.22);
+        // Smooth swept-edge outline (both sides) — the clean boundary line of
+        // the cargo swept path, traced along the load's outer corners.
+        const ce=buildSweptEnvelopeUnion(frames,gveh,effectivePpm,simPath);
+        const edgeCol='#4ade80';
+        const lb=smoothPts(ce.leftB,2), rb=smoothPts(ce.rightB,2);
+        if(lb.length>1) addLine(swLayer,lb,edgeCol,2.2);
+        if(rb.length>1) addLine(swLayer,rb,edgeCol,2.2);
+        trackLabel(swLayer,rb.length>1?rb:lb,'Cargo swept edge',edgeCol);
       } else {
         const env=buildSweptEnvelope(frames,gveh,effectivePpm,simPath);
         const poly=flat(cleanPolygon([...env.leftB,...[...env.rightB].reverse()]));
@@ -1831,9 +1837,13 @@ function render(){
     // 2. Wheel / body-corner tracks
     if(showTracks){
       const tr=computeWheelTracks(frames,gveh,effectivePpm,simPath);
-      addLine(swLayer,tr.fOL,drawCol,1.2,[5,3]);
-      addLine(swLayer,tr.fOR,drawCol,1.2,[5,3]);
-      trackLabel(swLayer,tr.fOL,S.reverse?'Rear overhang (rev)':'Front overhang',drawCol);
+      // Per-corner overhang tracks are replaced by the clean "Cargo swept edge"
+      // line when cargo is on, so hide them then to avoid a confusing extra line.
+      if(!S.cargo.on){
+        addLine(swLayer,tr.fOL,drawCol,1.2,[5,3]);
+        addLine(swLayer,tr.fOR,drawCol,1.2,[5,3]);
+        trackLabel(swLayer,tr.fOL,S.reverse?'Rear overhang (rev)':'Front overhang',drawCol);
+      }
       addLine(swLayer,tr.fL,drawCol,2.0);
       addLine(swLayer,tr.fR,drawCol,2.0);
       trackLabel(swLayer,tr.fL,S.reverse?'Rear wheel L (rev)':'Front wheel L',drawCol);
@@ -1849,13 +1859,6 @@ function render(){
         addLine(swLayer,tr.tR,tCol,2.2);
         trackLabel(swLayer,tr.tL,S.reverse?'Trailer front L (rev)':'Trailer rear L',tCol);
         trackLabel(swLayer,tr.tR,S.reverse?'Trailer front R (rev)':'Trailer rear R',tCol);
-      }
-      // Cargo overhang outer-corner swept lines — trace the load tip swing.
-      if(S.cargo.on && tr.rOL && tr.rOL.length>1){
-        const oc='#f87171';
-        addLine(swLayer,tr.rOL,oc,1.8,[6,3]);
-        addLine(swLayer,tr.rOR,oc,1.8,[6,3]);
-        trackLabel(swLayer,tr.rOL,'Cargo rear overhang',oc);
       }
     }
 

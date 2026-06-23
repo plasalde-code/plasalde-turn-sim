@@ -1766,7 +1766,10 @@ function render(){
         // so the green edge line is always exactly the limit of the fill. The
         // inner edge is lightly smoothed to remove the off-tracking sawtooth.
         const ce=buildSweptEnvelopeUnion(frames,gveh,effectivePpm,simPath);
-        const lb=smoothPts(ce.leftB,2), rb=smoothPts(ce.rightB,2);
+        // Smooth both edges (3 passes) to remove the inner off-tracking sawtooth.
+        // Fill and line share this polygon, so they stay locked together.
+        const sm=p=>smoothPts(smoothPts(smoothPts(p,3),3),3);
+        const lb=sm(ce.leftB), rb=sm(ce.rightB);
         const ring=cleanPolygon([...lb,...[...rb].reverse()]);
         const poly=flat(ring);
         if(poly.length>=6){

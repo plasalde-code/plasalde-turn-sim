@@ -301,6 +301,10 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#111827;color:#e5
 
     <!-- Account -->
     <div class="h-sep"></div>
+    <button class="hbtn" onclick="openWelcome()" title="How-To guide">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/></svg>
+      How-To
+    </button>
     <button class="hbtn hbtn-icon" onclick="openSupport()" title="Support" style="border-color:#1d4ed8;color:#93c5fd">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
     </button>
@@ -760,8 +764,7 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#111827;color:#e5
         </ul>
       </div>
     </div>
-    <label class="wskip"><input type="checkbox" id="skip-welcome"> Don't show this again</label>
-    <button class="wstart" onclick="closeWelcome()">Get Started →</button>
+    <button class="wstart" onclick="closeWelcome()">Got it →</button>
   </div>
 </div>
 
@@ -3991,16 +3994,15 @@ async function acceptTerms(){
   if(session) window._user=session.user;
 }
 
-// Welcome modal
+// Welcome / How-To modal — no longer auto-shown on load; opened on demand
+// from the "How-To" header button.
 function closeWelcome(){
-  if(document.getElementById('skip-welcome').checked)
-    localStorage.setItem('plts-skip-welcome','1');
   document.getElementById('welcome-overlay').classList.add('hide');
 }
-if(localStorage.getItem('plts-skip-welcome')!=='1')
+function openWelcome(){
   document.getElementById('welcome-overlay').classList.remove('hide');
-else
-  document.getElementById('welcome-overlay').classList.add('hide');
+}
+document.getElementById('welcome-overlay').classList.add('hide');
 
 async function doLogout(){
   if(window._sb){ await window._sb.auth.signOut(); }

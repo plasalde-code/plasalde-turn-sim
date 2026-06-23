@@ -1216,6 +1216,58 @@ function buildSweptEnvelope(frames,veh,ppm,pathPts){
   return{leftB,rightB};
 }
 
+// Union-based swept envelope — parameterizes the swept extent by PATH DISTANCE
+// instead of by axle position, so long front/rear (cargo) overhangs that swing
+// well ahead of / behind the axles are captured in the filled area. Used only
+// when cargo is on; the per-axle method above is kept for normal vehicles.
+function buildSweptEnvelopeUnion(frames,veh,ppm,pathPts){
+  const HW=(veh.W/2)*ppm, Fo=veh.Fo*ppm, Ro=veh.Ro*ppm, Fwd=(veh.Fwd||0)*ppm;
+  const n=pathPts.length;
+  const L=new Array(n).fill(null), R=new Array(n).fill(null);
+  const Lval=new Array(n).fill(-Infinity), Rval=new Array(n).fill(Infinity);
+  const tanAt=j=>{const a=pathPts[Math.max(0,j-1)],b=pathPts[Math.min(n-1,j+1)];return vnorm({x:b.x-a.x,y:b.y-a.y});};
+  function nearest(c,hint){
+    let best=hint,bd=Infinity;
+    const lo=Math.max(0,hint-80),hi=Math.min(n-1,hint+80);
+    for(let j=lo;j<=hi;j++){const dx=c.x-pathPts[j].x,dy=c.y-pathPts[j].y,d=dx*dx+dy*dy;if(d<bd){bd=d;best=j;}}
+    return best;
+  }
+  for(let i=0;i<frames.length;i++){
+    const f=frames[i];
+    const pt=pathPts[i];
+    const fdir=(pt&&(pt.tx||pt.ty))?{x:pt.tx,y:pt.ty}:vnorm(vsub(f.frontAxle,f.pivotAxle));
+    const flft=vleft(fdir);
+    const tdir=vnorm(vsub(f.frontAxle,f.pivotAxle));
+    const tlft=vleft(tdir);
+    const corners=[];
+    const fb=vadd(f.frontAxle,vscl(fdir,Fo));
+    corners.push(vadd(fb,vscl(flft,HW)),vadd(fb,vscl(flft,-HW)));
+    corners.push(vadd(f.frontAxle,vscl(flft,HW)),vadd(f.frontAxle,vscl(flft,-HW)));
+    if(!f.trailAxle){
+      const rb=vsub(f.pivotAxle,vscl(tdir,Ro));
+      corners.push(vadd(rb,vscl(tlft,HW)),vadd(rb,vscl(tlft,-HW)));
+    } else {
+      corners.push(vadd(f.pivotAxle,vscl(tlft,HW)),vadd(f.pivotAxle,vscl(tlft,-HW)));
+      const d2=vnorm(vsub(f.pivotAxle,f.trailAxle)),l2=vleft(d2);
+      const tf=vadd(f.pivotAxle,vscl(d2,Fwd));
+      corners.push(vadd(tf,vscl(l2,HW)),vadd(tf,vscl(l2,-HW)));
+      const rb=vsub(f.trailAxle,vscl(d2,Ro));
+      corners.push(vadd(rb,vscl(l2,HW)),vadd(rb,vscl(l2,-HW)));
+    }
+    for(const c of corners){
+      const j=nearest(c,i);
+      const tg=(pathPts[j].tx||pathPts[j].ty)?{x:pathPts[j].tx,y:pathPts[j].ty}:tanAt(j);
+      const lat=vdot(vsub(c,pathPts[j]),vleft(tg));
+      if(lat>Lval[j]){Lval[j]=lat;L[j]=c;}
+      if(lat<Rval[j]){Rval[j]=lat;R[j]=c;}
+    }
+  }
+  const leftB=[],rightB=[];
+  for(let j=0;j<n;j++) if(L[j]) leftB.push(L[j]);
+  for(let j=0;j<n;j++) if(R[j]) rightB.push(R[j]);
+  return{leftB,rightB};
+}
+
 // ══════════════════════════════════════════════════════════════════
 // 9b. POLYGON SELF-INTERSECTION CLEANUP
 // Removes "ear" artifacts caused by tight curves where the inner
@@ -1705,7 +1757,7 @@ function render(){
 
     // 1. Swept envelope fill
     if(showFill){
-      const env=buildSweptEnvelope(frames,gveh,effectivePpm,simPath);
+      const env=(S.cargo.on?buildSweptEnvelopeUnion:buildSweptEnvelope)(frames,gveh,effectivePpm,simPath);
       const poly=flat(cleanPolygon([...env.leftB,...[...env.rightB].reverse()]));
       if(poly.length>=6){
         swLayer.add(new Konva.Line({
@@ -3060,7 +3112,7 @@ function getExportData(){
   if(pathPts.length<2) return null;
   const frames=simulateAxles(pathPts,S.vehicle,effectivePpm);
   const tracks=computeWheelTracks(frames,cargoVeh(S.vehicle),effectivePpm,pathPts);
-  const env=buildSweptEnvelope(frames,cargoVeh(S.vehicle),effectivePpm,pathPts);
+  const env=(S.cargo.on?buildSweptEnvelopeUnion:buildSweptEnvelope)(frames,cargoVeh(S.vehicle),effectivePpm,pathPts);
   return{pathPts,frames,tracks,env,effectivePpm};
 }
 

@@ -385,6 +385,31 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#111827;color:#e5
         <div class="opt-row"><span>Radius circles</span><input type="checkbox" class="chk" id="opt-radii" checked onchange="render()"></div>
       </div>
 
+      <!-- Cargo / Oversize Load -->
+      <div class="s-sec">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <h3 style="margin-bottom:0">Cargo / Oversize Load</h3>
+          <input type="checkbox" class="chk" id="opt-cargo" onchange="onCargoToggle(this.checked)">
+        </div>
+        <div id="cargo-fields" style="display:none">
+          <div class="prow">
+            <span class="plabel">Front overhang</span>
+            <div class="pval-wrap">
+              <input type="number" class="pinput" id="inp-cargo-front" min="0" step="1" value="0" oninput="onCargoInput()">
+              <span class="punit">ft</span>
+            </div>
+          </div>
+          <div class="prow">
+            <span class="plabel">Rear overhang</span>
+            <div class="pval-wrap">
+              <input type="number" class="pinput" id="inp-cargo-rear" min="0" step="1" value="0" oninput="onCargoInput()">
+              <span class="punit">ft</span>
+            </div>
+          </div>
+          <div class="phint">Beyond front bumper &amp; trailer tail · cargo width = vehicle width</div>
+        </div>
+      </div>
+
       <!-- Vertex Properties -->
       <div class="s-sec" id="prop-panel">
         <h3>Vertex Properties</h3>
@@ -909,8 +934,26 @@ const S = {
   calActive:false, calP1:null, calP2:null,
   measurePts:[], measureLive:null,
   kmlFeatures:[],  // [{type:'line'|'polygon'|'point', coords:[{lat,lng}], name}]
+  cargo:{on:false, front:0, rear:0},  // oversize load overhang (ft) beyond bumper/tail
   _uid:1,
 };
+
+// Return a vehicle whose Fo/Ro include the cargo overhang (front bumper / trailer tail).
+// Only affects body/swept geometry — axle kinematics (L1/L2) are unchanged.
+function cargoVeh(veh){
+  if(!S.cargo.on) return veh;
+  return {...veh, Fo:(veh.Fo||0)+(S.cargo.front||0), Ro:(veh.Ro||0)+(S.cargo.rear||0)};
+}
+function onCargoToggle(on){
+  S.cargo.on=on;
+  document.getElementById('cargo-fields').style.display=on?'':'none';
+  render();
+}
+function onCargoInput(){
+  S.cargo.front=Math.max(0,parseFloat(document.getElementById('inp-cargo-front').value)||0);
+  S.cargo.rear =Math.max(0,parseFloat(document.getElementById('inp-cargo-rear').value)||0);
+  render();
+}
 
 // ══════════════════════════════════════════════════════════════════
 // 3. KONVA SETUP
@@ -1607,6 +1650,7 @@ function render(){
   if(!pathImpossible){
     // ── Kinematic simulation ──────────────────────────────────────
     const frames=simulateAxles(simPath,S.vehicle,effectivePpm);
+    const gveh=cargoVeh(S.vehicle);  // body/swept geometry incl. cargo overhang
 
     // ── Articulation / jackknife check (articulated vehicles, BOTH directions).
     // The trailer cannot exceed ~75° relative to the tractor without jackknifing.
@@ -1654,7 +1698,7 @@ function render(){
 
     // 1. Swept envelope fill
     if(showFill){
-      const env=buildSweptEnvelope(frames,S.vehicle,effectivePpm,simPath);
+      const env=buildSweptEnvelope(frames,gveh,effectivePpm,simPath);
       const poly=flat(cleanPolygon([...env.leftB,...[...env.rightB].reverse()]));
       if(poly.length>=6){
         swLayer.add(new Konva.Line({
@@ -1671,7 +1715,7 @@ function render(){
 
     // 2. Wheel / body-corner tracks
     if(showTracks){
-      const tr=computeWheelTracks(frames,S.vehicle,effectivePpm,simPath);
+      const tr=computeWheelTracks(frames,gveh,effectivePpm,simPath);
       addLine(swLayer,tr.fOL,drawCol,1.2,[5,3]);
       addLine(swLayer,tr.fOR,drawCol,1.2,[5,3]);
       trackLabel(swLayer,tr.fOL,S.reverse?'Rear overhang (rev)':'Front overhang',drawCol);
@@ -1696,7 +1740,7 @@ function render(){
     // 3. Vehicle body outlines
     if(showBody){
       const dispFrames=getBodyDisplayFrames(simPath,frames);
-      dispFrames.forEach(f=>renderBodyOutline(f,S.vehicle,effectivePpm,mainLayer));
+      dispFrames.forEach(f=>renderBodyOutline(f,gveh,effectivePpm,mainLayer));
     }
 
     // Min-radius warning
@@ -3001,8 +3045,8 @@ function getExportData(){
   const pathPts=computePathPoints(vs,curves,3,2);
   if(pathPts.length<2) return null;
   const frames=simulateAxles(pathPts,S.vehicle,effectivePpm);
-  const tracks=computeWheelTracks(frames,S.vehicle,effectivePpm,pathPts);
-  const env=buildSweptEnvelope(frames,S.vehicle,effectivePpm,pathPts);
+  const tracks=computeWheelTracks(frames,cargoVeh(S.vehicle),effectivePpm,pathPts);
+  const env=buildSweptEnvelope(frames,cargoVeh(S.vehicle),effectivePpm,pathPts);
   return{pathPts,frames,tracks,env,effectivePpm};
 }
 
@@ -3335,8 +3379,9 @@ async function exportDXF(){
   // Compute vehicle body rectangle corners (canvas px) for one frame.
   // Returns array of box-corner arrays: 1 box for rigid, 2 for semitrailer.
   function getFrameBoxes(frame){
-    const HW=(S.vehicle.W/2)*effectivePpm,Fo=S.vehicle.Fo*effectivePpm;
-    const Ro=S.vehicle.Ro*effectivePpm,Fwd=(S.vehicle.Fwd||0)*effectivePpm;
+    const cv=cargoVeh(S.vehicle);
+    const HW=(cv.W/2)*effectivePpm,Fo=cv.Fo*effectivePpm;
+    const Ro=cv.Ro*effectivePpm,Fwd=(cv.Fwd||0)*effectivePpm;
     const dir=vnorm(vsub(frame.frontAxle,frame.pivotAxle));
     const lft=vleft(dir);
     const fb=vadd(frame.frontAxle,vscl(dir,Fo));

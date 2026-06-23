@@ -1292,17 +1292,16 @@ function buildFrameQuads(frames,veh,ppm,pathPts){
   const quads=[];
   for(let i=0;i<frames.length;i++){
     const f=frames[i];
-    const pt=pathPts&&pathPts[i];
-    const fdir=(pt&&(pt.tx||pt.ty))?{x:pt.tx,y:pt.ty}:vnorm(vsub(f.frontAxle,f.pivotAxle));
-    const flft=vleft(fdir);
+    // Tractor body axis (NOT the steered path tangent) — the cab and any front
+    // overhang are rigid with the body, which yaws to the outside of the curve.
     const tdir=vnorm(vsub(f.frontAxle,f.pivotAxle));
     const tlft=vleft(tdir);
-    const fb=vadd(f.frontAxle,vscl(fdir,Fo));
+    const fb=vadd(f.frontAxle,vscl(tdir,Fo));
     if(!f.trailAxle){
       const rb=vsub(f.pivotAxle,vscl(tdir,Ro));
-      quads.push([vadd(fb,vscl(flft,HW)),vadd(fb,vscl(flft,-HW)),vadd(rb,vscl(tlft,-HW)),vadd(rb,vscl(tlft,HW))]);
+      quads.push([vadd(fb,vscl(tlft,HW)),vadd(fb,vscl(tlft,-HW)),vadd(rb,vscl(tlft,-HW)),vadd(rb,vscl(tlft,HW))]);
     } else {
-      quads.push([vadd(fb,vscl(flft,HW)),vadd(fb,vscl(flft,-HW)),vadd(f.pivotAxle,vscl(tlft,-HW)),vadd(f.pivotAxle,vscl(tlft,HW))]);
+      quads.push([vadd(fb,vscl(tlft,HW)),vadd(fb,vscl(tlft,-HW)),vadd(f.pivotAxle,vscl(tlft,-HW)),vadd(f.pivotAxle,vscl(tlft,HW))]);
       const d2=vnorm(vsub(f.pivotAxle,f.trailAxle)),l2=vleft(d2);
       const tf=vadd(f.pivotAxle,vscl(d2,Fwd));
       const rb=vsub(f.trailAxle,vscl(d2,Ro));

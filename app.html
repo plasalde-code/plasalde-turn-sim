@@ -1222,14 +1222,30 @@ function buildSweptEnvelope(frames,veh,ppm,pathPts){
 // when cargo is on; the per-axle method above is kept for normal vehicles.
 function buildSweptEnvelopeUnion(frames,veh,ppm,pathPts){
   const HW=(veh.W/2)*ppm, Fo=veh.Fo*ppm, Ro=veh.Ro*ppm, Fwd=(veh.Fwd||0)*ppm;
-  const n=pathPts.length;
+  const n0=pathPts.length;
+  if(n0<2) return{leftB:[],rightB:[]};
+  // Average path step, for spacing the virtual end extensions.
+  let step=0; for(let i=1;i<n0;i++) step+=vdist(pathPts[i],pathPts[i-1]);
+  step=(step/(n0-1))||1;
+  // Extend the path beyond both ends by the overhang lengths, so the load's
+  // nose (past the last point) and tail (before the first point) get their own
+  // bins and the END CAPS fill instead of collapsing to a single point.
+  const sTan=vnorm(vsub(pathPts[Math.min(1,n0-1)],pathPts[0]));
+  const eTan=vnorm(vsub(pathPts[n0-1],pathPts[Math.max(0,n0-2)]));
+  const preN=Math.min(400,Math.ceil((Ro+2*step)/step));
+  const postN=Math.min(400,Math.ceil((Fo+Fwd+2*step)/step));
+  const xp=[];
+  for(let k=preN;k>=1;k--) xp.push({x:pathPts[0].x-sTan.x*step*k, y:pathPts[0].y-sTan.y*step*k, tx:sTan.x, ty:sTan.y});
+  for(let i=0;i<n0;i++) xp.push(pathPts[i]);
+  for(let k=1;k<=postN;k++) xp.push({x:pathPts[n0-1].x+eTan.x*step*k, y:pathPts[n0-1].y+eTan.y*step*k, tx:eTan.x, ty:eTan.y});
+  const n=xp.length;
   const L=new Array(n).fill(null), R=new Array(n).fill(null);
   const Lval=new Array(n).fill(-Infinity), Rval=new Array(n).fill(Infinity);
-  const tanAt=j=>{const a=pathPts[Math.max(0,j-1)],b=pathPts[Math.min(n-1,j+1)];return vnorm({x:b.x-a.x,y:b.y-a.y});};
+  const tanAt=j=>{const a=xp[Math.max(0,j-1)],b=xp[Math.min(n-1,j+1)];return vnorm({x:b.x-a.x,y:b.y-a.y});};
   function nearest(c,hint){
     let best=hint,bd=Infinity;
-    const lo=Math.max(0,hint-80),hi=Math.min(n-1,hint+80);
-    for(let j=lo;j<=hi;j++){const dx=c.x-pathPts[j].x,dy=c.y-pathPts[j].y,d=dx*dx+dy*dy;if(d<bd){bd=d;best=j;}}
+    const lo=Math.max(0,hint-120),hi=Math.min(n-1,hint+120);
+    for(let j=lo;j<=hi;j++){const dx=c.x-xp[j].x,dy=c.y-xp[j].y,d=dx*dx+dy*dy;if(d<bd){bd=d;best=j;}}
     return best;
   }
   for(let i=0;i<frames.length;i++){
@@ -1255,9 +1271,9 @@ function buildSweptEnvelopeUnion(frames,veh,ppm,pathPts){
       corners.push(vadd(rb,vscl(l2,HW)),vadd(rb,vscl(l2,-HW)));
     }
     for(const c of corners){
-      const j=nearest(c,i);
-      const tg=(pathPts[j].tx||pathPts[j].ty)?{x:pathPts[j].tx,y:pathPts[j].ty}:tanAt(j);
-      const lat=vdot(vsub(c,pathPts[j]),vleft(tg));
+      const j=nearest(c,i+preN);
+      const tg=(xp[j].tx||xp[j].ty)?{x:xp[j].tx,y:xp[j].ty}:tanAt(j);
+      const lat=vdot(vsub(c,xp[j]),vleft(tg));
       if(lat>Lval[j]){Lval[j]=lat;L[j]=c;}
       if(lat<Rval[j]){Rval[j]=lat;R[j]=c;}
     }

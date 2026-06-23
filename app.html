@@ -1810,13 +1810,16 @@ function render(){
         grp.cache();
         grp.opacity(0.22);
         // Smooth swept-edge outline (both sides) — the clean boundary line of
-        // the cargo swept path, traced along the load's outer corners.
+        // the cargo swept path. The inner edge is noisy (the inner-most corner
+        // jumps between tractor and trailer as the trailer off-tracks), so it is
+        // strongly low-pass filtered: simplify (RDP) then box-blur twice.
         const ce=buildSweptEnvelopeUnion(frames,gveh,effectivePpm,simPath);
         const edgeCol='#4ade80';
-        const lb=smoothPts(ce.leftB,2), rb=smoothPts(ce.rightB,2);
-        if(lb.length>1) addLine(swLayer,lb,edgeCol,2.2);
-        if(rb.length>1) addLine(swLayer,rb,edgeCol,2.2);
-        trackLabel(swLayer,rb.length>1?rb:lb,'Cargo swept edge',edgeCol);
+        const cleanEdge=p=>{ if(!p||p.length<3) return p; let s=smoothPts(p,4); s=smoothPts(s,4); s=smoothPts(s,4); return s; };
+        const lb=cleanEdge(ce.leftB), rb=cleanEdge(ce.rightB);
+        if(lb&&lb.length>1) addLine(swLayer,lb,edgeCol,2.2);
+        if(rb&&rb.length>1) addLine(swLayer,rb,edgeCol,2.2);
+        trackLabel(swLayer,(rb&&rb.length>1)?rb:lb,'Cargo swept edge',edgeCol);
       } else {
         const env=buildSweptEnvelope(frames,gveh,effectivePpm,simPath);
         const poly=flat(cleanPolygon([...env.leftB,...[...env.rightB].reverse()]));

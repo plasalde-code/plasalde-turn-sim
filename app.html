@@ -1117,8 +1117,8 @@ function simulateAxles(pathPts,veh,ppm){
 //    tL/tR   = trailer rear axle left/right (WB only)
 // ══════════════════════════════════════════════════════════════════
 function computeWheelTracks(frames,veh,ppm,pathPts){
-  const HW=(veh.TW/2)*ppm, Fo=veh.Fo*ppm;
-  const fOL=[],fOR=[],fL=[],fR=[],p1L=[],p1R=[],tL=[],tR=[];
+  const HW=(veh.TW/2)*ppm, Fo=veh.Fo*ppm, Ro=veh.Ro*ppm, BW=(veh.W/2)*ppm;
+  const fOL=[],fOR=[],fL=[],fR=[],p1L=[],p1R=[],tL=[],tR=[],rOL=[],rOR=[];
 
   for(let i=0;i<frames.length;i++){
     const f=frames[i];
@@ -1137,15 +1137,22 @@ function computeWheelTracks(frames,veh,ppm,pathPts){
     const tlft=vleft(tdir);
     p1L.push(vadd(f.pivotAxle,vscl(tlft,HW)));
     p1R.push(vadd(f.pivotAxle,vscl(tlft,-HW)));
-    // Trailer rear axle
+    // Rear overhang outer corners (body/cargo width) — traces the tail/cargo tip swing.
     if(f.trailAxle){
       const d2=vnorm(vsub(f.pivotAxle,f.trailAxle));
       const l2=vleft(d2);
       tL.push(vadd(f.trailAxle,vscl(l2,HW)));
       tR.push(vadd(f.trailAxle,vscl(l2,-HW)));
+      const rb=vsub(f.trailAxle,vscl(d2,Ro));   // rear of trailer/cargo (Ro incl. cargo)
+      rOL.push(vadd(rb,vscl(l2,BW)));
+      rOR.push(vadd(rb,vscl(l2,-BW)));
+    } else {
+      const rb=vsub(f.pivotAxle,vscl(tdir,Ro));  // rear of rigid body/cargo
+      rOL.push(vadd(rb,vscl(tlft,BW)));
+      rOR.push(vadd(rb,vscl(tlft,-BW)));
     }
   }
-  return{fOL,fOR,fL,fR,p1L,p1R,tL,tR};
+  return{fOL,fOR,fL,fR,p1L,p1R,tL,tR,rOL,rOR};
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -1734,6 +1741,13 @@ function render(){
         addLine(swLayer,tr.tR,tCol,2.2);
         trackLabel(swLayer,tr.tL,S.reverse?'Trailer front L (rev)':'Trailer rear L',tCol);
         trackLabel(swLayer,tr.tR,S.reverse?'Trailer front R (rev)':'Trailer rear R',tCol);
+      }
+      // Cargo overhang outer-corner swept lines — trace the load tip swing.
+      if(S.cargo.on && tr.rOL && tr.rOL.length>1){
+        const oc='#f87171';
+        addLine(swLayer,tr.rOL,oc,1.8,[6,3]);
+        addLine(swLayer,tr.rOR,oc,1.8,[6,3]);
+        trackLabel(swLayer,tr.rOL,'Cargo rear overhang',oc);
       }
     }
 

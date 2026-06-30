@@ -3354,6 +3354,13 @@ async function exportDXF(){
   if(!data){alert('Draw a path with at least 2 points first.');return;}
   const{pathPts,frames,tracks,env,effectivePpm}=data;
 
+  // Cargo swept-path outline (closed boundary of the load footprint union),
+  // exported on its own layer when cargo is on. Same trace used on screen.
+  const cargoOn=S.cargo.on;
+  const cargoEdge=cargoOn
+    ? smoothPts(smoothPts(buildSweptOutline(buildFrameQuads(frames,cargoVeh(S.vehicle),effectivePpm,pathPts)),2),2)
+    : null;
+
   const isGeo=S.aerial&&S.leaflet;
   let toXY,ctrLL=null,ctrFt=null;
   let extMinX,extMinY,extMaxX,extMaxY;
@@ -3606,6 +3613,7 @@ async function exportDXF(){
     // 3 layers: CENTERLINE (yellow), WHEEL-PATHS (cyan), VEHICLE-OUTLINE (white)
     const hasTrailer=tracks.tL&&tracks.tL.length>0;
     const ld=[['CENTERLINE',2],['WHEEL-PATHS',4],['VEHICLE-OUTLINE',7]];
+    if(cargoOn) ld.push(['CARGO-SWEPT',3]);
     let d='0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1009\n9\n$INSUNITS\n70\n2\n';
     d+='9\n$EXTMIN\n10\n0.0\n20\n0.0\n30\n0.0\n9\n$EXTMAX\n10\n1000.0\n20\n1000.0\n30\n0.0\n0\nENDSEC\n';
     d+='0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLTYPE\n70\n1\n';
@@ -3620,6 +3628,7 @@ async function exportDXF(){
     // Vehicle body box outlines — capped at 8 to avoid dense dotted appearance
     for(const f of sampleFrames(getBodyDisplayFrames(pathPts,frames),8))
       for(const box of getFrameBoxes(f)) d+=emitBox(box,'VEHICLE-OUTLINE');
+    if(cargoOn&&cargoEdge&&cargoEdge.length>2) d+=emitBox(cargoEdge,'CARGO-SWEPT');
     d+='0\nENDSEC\n0\nEOF\n';
     const blob=new Blob([d],{type:'text/plain'});
     const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`${stem}.dxf`; a.click();
@@ -3631,6 +3640,7 @@ async function exportDXF(){
   // ARC entities are unambiguous R12 — no bulge issues, no APPID table needed.
   const hasTrailer=tracks.tL&&tracks.tL.length>0;
   const ld=[['CENTERLINE',2],['WHEEL-PATHS',4],['VEHICLE-OUTLINE',7]];
+  if(cargoOn) ld.push(['CARGO-SWEPT',3]);
 
   let d='0\nSECTION\n2\nHEADER\n';
   d+='9\n$ACADVER\n1\nAC1009\n';
@@ -3652,6 +3662,7 @@ async function exportDXF(){
   if(hasTrailer) d+=emitGeoR12(tracks.tL,'WHEEL-PATHS')+emitGeoR12(tracks.tR,'WHEEL-PATHS');
   for(const f of sampleFrames(getBodyDisplayFrames(pathPts,frames),8))
     for(const box of getFrameBoxes(f)) d+=emitBox(box,'VEHICLE-OUTLINE');
+  if(cargoOn&&cargoEdge&&cargoEdge.length>2) d+=emitBox(cargoEdge,'CARGO-SWEPT');
   d+='0\nENDSEC\n0\nEOF\n';
 
   const blob=new Blob([d],{type:'text/plain'});

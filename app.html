@@ -1272,6 +1272,73 @@ function buildSweptEnvelopeUnion(frames,veh,ppm,pathPts){
   return{leftB,rightB};
 }
 
+// Per-frame vehicle+cargo footprint quads (body-axis). Union = exact swept area.
+function buildFrameQuads(frames,veh,ppm,pathPts){
+  const HW=(veh.W/2)*ppm, Fo=veh.Fo*ppm, Ro=veh.Ro*ppm, Fwd=(veh.Fwd||0)*ppm;
+  const quads=[];
+  for(let i=0;i<frames.length;i++){
+    const f=frames[i];
+    const tdir=vnorm(vsub(f.frontAxle,f.pivotAxle)), tlft=vleft(tdir);
+    const fb=vadd(f.frontAxle,vscl(tdir,Fo));
+    if(!f.trailAxle){
+      const rb=vsub(f.pivotAxle,vscl(tdir,Ro));
+      quads.push([vadd(fb,vscl(tlft,HW)),vadd(fb,vscl(tlft,-HW)),vadd(rb,vscl(tlft,-HW)),vadd(rb,vscl(tlft,HW))]);
+    } else {
+      quads.push([vadd(fb,vscl(tlft,HW)),vadd(fb,vscl(tlft,-HW)),vadd(f.pivotAxle,vscl(tlft,-HW)),vadd(f.pivotAxle,vscl(tlft,HW))]);
+      const d2=vnorm(vsub(f.pivotAxle,f.trailAxle)),l2=vleft(d2);
+      const tf=vadd(f.pivotAxle,vscl(d2,Fwd));
+      const rb=vsub(f.trailAxle,vscl(d2,Ro));
+      quads.push([vadd(tf,vscl(l2,HW)),vadd(tf,vscl(l2,-HW)),vadd(rb,vscl(l2,-HW)),vadd(rb,vscl(l2,HW))]);
+    }
+  }
+  return quads;
+}
+
+// Trace the true outline of the union of footprint quads (works for any shape —
+// S-curves, long overhangs). Rasterizes the quads into a grid then walks the
+// boundary (Moore-neighbor tracing). Returns a closed contour in canvas px.
+function buildSweptOutline(quads){
+  if(!quads.length) return [];
+  let minx=1e9,miny=1e9,maxx=-1e9,maxy=-1e9;
+  for(const q of quads) for(const p of q){ if(p.x<minx)minx=p.x; if(p.y<miny)miny=p.y; if(p.x>maxx)maxx=p.x; if(p.y>maxy)maxy=p.y; }
+  const span=Math.max(maxx-minx,maxy-miny); if(span<=0) return [];
+  const cell=Math.max(1,span/500), pad=2;
+  const ox=minx-pad*cell, oy=miny-pad*cell;
+  const cols=Math.ceil((maxx-minx)/cell)+2*pad+2, rows=Math.ceil((maxy-miny)/cell)+2*pad+2;
+  if(cols*rows>4e6) return []; // safety cap
+  const g=new Uint8Array(cols*rows);
+  for(const q of quads){
+    let qmin=1e9,qmax=-1e9; for(const p of q){const gy=(p.y-oy)/cell; if(gy<qmin)qmin=gy; if(gy>qmax)qmax=gy;}
+    const r0=Math.max(0,Math.floor(qmin)), r1=Math.min(rows-1,Math.ceil(qmax));
+    for(let r=r0;r<=r1;r++){
+      const yc=oy+(r+0.5)*cell, xs=[];
+      for(let e=0;e<q.length;e++){const a=q[e],b=q[(e+1)%q.length];
+        if((a.y<=yc&&b.y>yc)||(b.y<=yc&&a.y>yc)){ const t=(yc-a.y)/(b.y-a.y); xs.push(a.x+t*(b.x-a.x)); }}
+      xs.sort((u,v)=>u-v);
+      for(let k=0;k+1<xs.length;k+=2){
+        const c0=Math.max(0,Math.floor((xs[k]-ox)/cell)), c1=Math.min(cols-1,Math.ceil((xs[k+1]-ox)/cell));
+        for(let c=c0;c<=c1;c++) g[r*cols+c]=1;
+      }
+    }
+  }
+  let sx=-1,sy=-1;
+  for(let r=0;r<rows&&sy<0;r++) for(let c=0;c<cols;c++){ if(g[r*cols+c]){sx=c;sy=r;break;} }
+  if(sx<0) return [];
+  const filled=(c,r)=> c>=0&&r>=0&&c<cols&&r<rows&&g[r*cols+c]===1;
+  const dirs=[[1,0],[1,1],[0,1],[-1,1],[-1,0],[-1,-1],[0,-1],[1,-1]];
+  const contour=[]; let cx=sx,cy=sy,bdir=6,guard=0,started=false; const max=cols*rows*4;
+  do{
+    contour.push({x:ox+cx*cell,y:oy+cy*cell});
+    let found=false;
+    for(let k=0;k<8;k++){ const d=(bdir+k)%8,nx=cx+dirs[d][0],ny=cy+dirs[d][1];
+      if(filled(nx,ny)){ cx=nx;cy=ny;bdir=(d+5)%8;found=true;break; } }
+    if(!found) break;
+    if(cx===sx&&cy===sy){ if(started) break; started=true; }
+    guard++;
+  }while(guard<max);
+  return contour;
+}
+
 // ══════════════════════════════════════════════════════════════════
 // 9b. POLYGON SELF-INTERSECTION CLEANUP
 // Removes "ear" artifacts caused by tight curves where the inner
@@ -1762,22 +1829,19 @@ function render(){
     // 1. Swept envelope fill
     if(showFill){
       if(S.cargo.on){
-        // Cargo swept path: ONE polygon used for BOTH the fill and its outline,
-        // so the green edge line is always exactly the limit of the fill. The
-        // inner edge is lightly smoothed to remove the off-tracking sawtooth.
-        const ce=buildSweptEnvelopeUnion(frames,gveh,effectivePpm,simPath);
-        // Smooth both edges (3 passes) to remove the inner off-tracking sawtooth.
-        // Fill and line share this polygon, so they stay locked together.
-        const sm=p=>smoothPts(smoothPts(smoothPts(p,3),3),3);
-        const lb=sm(ce.leftB), rb=sm(ce.rightB);
-        const ring=cleanPolygon([...lb,...[...rb].reverse()]);
-        const poly=flat(ring);
-        if(poly.length>=6){
-          swLayer.add(new Konva.Line({
-            points:poly,closed:true,
-            fill:drawCol+'33', stroke:'#4ade80', strokeWidth:2, listening:false
-          }));
-          trackLabel(swLayer,rb.length>1?rb:lb,'Cargo swept edge','#4ade80');
+        // Cargo swept path: draw the vehicle+cargo footprint at every frame
+        // (the true swept area) as a cached translucent fill, then TRACE that
+        // exact union to get the green outline. Works for any shape — S-curves,
+        // long overhangs — and the line is by construction the limit of the fill.
+        const quads=buildFrameQuads(frames,gveh,effectivePpm,simPath);
+        const grp=new Konva.Group({listening:false});
+        for(const q of quads)
+          grp.add(new Konva.Line({points:flat(q),closed:true,fill:drawCol,strokeWidth:0,listening:false}));
+        swLayer.add(grp); grp.cache(); grp.opacity(0.22);
+        let edge=buildSweptOutline(quads);
+        if(edge.length>2){ edge=smoothPts(smoothPts(edge,2),2);
+          swLayer.add(new Konva.Line({points:flat(edge),closed:true,stroke:'#4ade80',strokeWidth:2,listening:false}));
+          trackLabel(swLayer,edge,'Cargo swept edge','#4ade80');
         }
       } else {
         const env=buildSweptEnvelope(frames,gveh,effectivePpm,simPath);

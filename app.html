@@ -1321,6 +1321,32 @@ function buildSweptOutline(quads){
       }
     }
   }
+  // Morphological closing (dilate then erode, 8-neighbor) bridges 1-cell-wide
+  // pinches — e.g. at an S-curve inflection where the swept shape briefly
+  // narrows to near-zero width. Moore-neighbor tracing produces a spurious
+  // "spike" artifact at such pinches; the true swept path is continuous, so
+  // closing the gap here reflects reality rather than introducing error.
+  {
+    const dl=new Uint8Array(cols*rows);
+    for(let r=0;r<rows;r++)for(let c=0;c<cols;c++){
+      if(g[r*cols+c]){dl[r*cols+c]=1;continue;}
+      let any=0;
+      for(let dr=-1;dr<=1&&!any;dr++)for(let dc=-1;dc<=1;dc++){
+        const rr=r+dr,cc=c+dc;
+        if(rr>=0&&rr<rows&&cc>=0&&cc<cols&&g[rr*cols+cc]){any=1;break;}
+      }
+      dl[r*cols+c]=any;
+    }
+    for(let r=0;r<rows;r++)for(let c=0;c<cols;c++){
+      if(!dl[r*cols+c]){g[r*cols+c]=0;continue;}
+      let all=1;
+      for(let dr=-1;dr<=1&&all;dr++)for(let dc=-1;dc<=1;dc++){
+        const rr=r+dr,cc=c+dc;
+        if(rr<0||rr>=rows||cc<0||cc>=cols||!dl[rr*cols+cc]){all=0;break;}
+      }
+      g[r*cols+c]=all?1:0;
+    }
+  }
   let sx=-1,sy=-1;
   for(let r=0;r<rows&&sy<0;r++) for(let c=0;c<cols;c++){ if(g[r*cols+c]){sx=c;sy=r;break;} }
   if(sx<0) return [];
@@ -1336,7 +1362,9 @@ function buildSweptOutline(quads){
     if(cx===sx&&cy===sy){ if(started) break; started=true; }
     guard++;
   }while(guard<max);
-  return contour;
+  // Second line of defense: clip any residual self-intersecting "ear" the same
+  // way the app already does for tight-curve swept-envelope artifacts.
+  return contour.length>4 ? cleanPolygon(contour) : contour;
 }
 
 // ══════════════════════════════════════════════════════════════════

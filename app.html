@@ -1802,8 +1802,14 @@ function render(){
   // Jackknife detection handles the real reverse constraint.
   // Use the ACTUAL fitted radius (clamped by node spacing) — not the stored
   // node radius — so movements that are too tight to physically fit are caught.
+  // TOL_FT absorbs floating-point noise from the pixel<->feet curve-fitting
+  // math (sin/cos/tan/atan2) so a radius that is exactly at the vehicle's
+  // minimum (e.g. drawn 55 ft on a 55 ft-min vehicle) doesn't get blocked by
+  // a spurious 54.9999996 vs 55 comparison — which also explains why the
+  // block could appear/disappear when zooming (pixel math changes slightly).
+  const TOL_FT=0.05;
   const minCurveR=getMinActualCurveRadius(vs,curves,effectivePpm);
-  const pathImpossible=!S.reverse && minCurveR<Infinity && S.vehicle.Rmin>minCurveR;
+  const pathImpossible=!S.reverse && minCurveR<Infinity && S.vehicle.Rmin>minCurveR+TOL_FT;
 
   if(!pathImpossible){
     // ── Kinematic simulation ──────────────────────────────────────

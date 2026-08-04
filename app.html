@@ -1008,6 +1008,27 @@ function computeCurve(prev,curr,next,R_px){
   return{bc,ec,center,R,isLeft:cr<0,delta:dlt};
 }
 
+// Detect consecutive curves whose tangents OVERLAP on their shared segment.
+// Each curve independently caps its tangent length at 90% of the adjacent
+// segment, so two curves sharing one segment can claim up to 180% of it —
+// curve i's EC then lands PAST curve i+1's BC and the connecting "line" runs
+// backwards, kinking the path and garbling the simulation (worst on reverse
+// curves, where the crumpled body outline shows up at the S-inflection).
+// Touching (zero-tangent S-curve) is allowed; only true overlap is flagged.
+function checkCurveOverlap(vs,curves){
+  for(let i=1;i<vs.length-2;i++){
+    const a=curves[i], b=curves[i+1];
+    if(!a||!b) continue;
+    const segLen=vdist(vs[i],vs[i+1]);
+    const tA=vdist(vs[i],a.ec);     // curve i's tangent length into the shared segment
+    const tB=vdist(vs[i+1],b.bc);   // curve i+1's tangent length back into it
+    if(tA+tB>segLen+1){             // +1px tolerance: allow touching, flag overlap
+      return{ok:false,i,j:i+1,overlapFt:null,reverse:a.isLeft!==b.isLeft};
+    }
+  }
+  return{ok:true,i:-1,j:-1};
+}
+
 // ══════════════════════════════════════════════════════════════════
 // 6. DENSE PATH POINT COMPUTATION
 //    Each pt: {x,y, tx,ty (unit tangent), curvR, isLeft}
@@ -1504,7 +1525,18 @@ function getBodyDisplayFrames(pathPts,frames){
   }
   if(inArc) sel.add(Math.floor((arcS+n-1)/2));
   if(sel.size===2&&n>8){sel.add(Math.floor(n/3));sel.add(Math.floor(2*n/3));}
-  return[...sel].sort((a,b)=>a-b).map(i=>frames[Math.min(i,n-1)]);
+  // Guard: never draw a body outline at a frame where the tractor heading
+  // snaps between adjacent frames. One path step is a few px, so a real
+  // vehicle's heading change per step is tiny; a large jump means the frame
+  // sits on a path defect (kink) and the outline would render as garbage.
+  const hd=i=>{const f=frames[Math.min(Math.max(i,0),n-1)];return Math.atan2(f.frontAxle.y-f.pivotAxle.y,f.frontAxle.x-f.pivotAxle.x);};
+  const snap=i=>{
+    if(i<=0||i>=n-1) return false;
+    let a=Math.abs(hd(i)-hd(i-1)); if(a>Math.PI) a=2*Math.PI-a;
+    let b=Math.abs(hd(i+1)-hd(i)); if(b>Math.PI) b=2*Math.PI-b;
+    return Math.max(a,b)>0.35; // ~20° in one step = pathological
+  };
+  return[...sel].filter(i=>!snap(i)).sort((a,b)=>a-b).map(i=>frames[Math.min(i,n-1)]);
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -1793,6 +1825,63 @@ function render(){
     });
     mainLayer.batchDraw(); swLayer.batchDraw();
     updatePropPanel();   // open the radius panel for the auto-selected node
+    updateVehicleStates();
+    return;
+  }
+
+  // ── Curve overlap check ───────────────────────────────────────
+  // Two adjacent curves whose tangents overlap on the shared segment make
+  // the path double back on itself at the joint — invalid geometry that
+  // kinks the centerline and garbles the vehicle simulation there.
+  const ovl=checkCurveOverlap(vs,curves);
+  if(!ovl.ok){
+    if(!S._drawLocked){S._drawLocked=true;setTimeout(()=>{S._drawLocked=false;},1200);}
+    document.getElementById('min-warn').style.display='none';
+
+    S.selId=vs[ovl.j].id;
+    if(S.mode!=='select'){
+      S.mode='select';
+      document.querySelectorAll('.tbtn').forEach(b=>b.classList.remove('active'));
+      const tbs=document.getElementById('tbtn-select');
+      if(tbs) tbs.classList.add('active');
+      document.getElementById('stage-container').style.cursor='default';
+    }
+
+    const oLbl=new Konva.Label({x:8,y:8,listening:false,opacity:.97});
+    oLbl.add(new Konva.Tag({fill:'rgba(127,29,29,.93)',cornerRadius:5,stroke:'#ef4444',strokeWidth:1}));
+    oLbl.add(new Konva.Text({
+      text:`⚠  Curves at nodes ${ovl.i+1} and ${ovl.j+1} overlap — not enough room for both radii${ovl.reverse?' (reverse curves need a tangent between them)':''}\n`+
+           `   ✔  Node ${ovl.j+1} is selected. Reduce a radius in the panel ← or spread the nodes further apart.`,
+      fontSize:12,fontStyle:'bold',fill:'#fca5a5',padding:7,lineHeight:1.6
+    }));
+    mainLayer.add(oLbl);
+
+    // Draw vertices — both offending nodes are red, clickable, and draggable
+    vs.forEach((v,i)=>{
+      const isBad=(i===ovl.i||i===ovl.j);
+      const c=new Konva.Circle({
+        x:v.x,y:v.y,radius:isBad?10:6,
+        fill:isBad?'#ef4444':'#1d4ed8',
+        stroke:'#fff',strokeWidth:isBad?2.5:1.5,
+        listening:isBad,
+        draggable:isBad,
+        id:v.id,
+      });
+      if(isBad){
+        c.on('click tap',()=>{S.selId=v.id;updatePropPanel();render();});
+        let _bsx=v.x,_bsy=v.y;
+        c.on('dragstart',()=>{_bsx=v.x;_bsy=v.y;});
+        c.on('dragmove',e=>{v.x=e.target.x();v.y=e.target.y();
+          if(S.aerial&&S.leaflet){const ll=S.leaflet.containerPointToLatLng([v.x,v.y]);v.lat=ll.lat;v.lng=ll.lng;}
+        });
+        c.on('dragend',()=>{checkDragCrossing(v,_bsx,_bsy);render();});
+        mainLayer.add(new Konva.Circle({x:v.x,y:v.y,radius:18,stroke:'#ef4444',strokeWidth:1.5,dash:[4,3],fill:'transparent',listening:false}));
+      }
+      mainLayer.add(c);
+      mainLayer.add(new Konva.Text({x:v.x+10,y:v.y-8,text:String(i+1),fontSize:10,fill:isBad?'#ef4444':'#6b7280',listening:false}));
+    });
+    mainLayer.batchDraw(); swLayer.batchDraw();
+    updatePropPanel();
     updateVehicleStates();
     return;
   }

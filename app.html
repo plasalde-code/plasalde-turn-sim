@@ -1887,8 +1887,9 @@ function render(){
   }
 
   // ── Physical possibility check ────────────────────────────────
-  // In reverse: Rmin is a forward steering limit — skip it.
-  // Jackknife detection handles the real reverse constraint.
+  // Applies in BOTH directions: the steer axle's minimum turning radius is a
+  // mechanical limit of the steering linkage, so it is unchanged in reverse.
+  // (Jackknife is the ADDITIONAL reverse constraint, checked further below.)
   // Use the ACTUAL fitted radius (clamped by node spacing) — not the stored
   // node radius — so movements that are too tight to physically fit are caught.
   // TOL_FT absorbs floating-point noise from the pixel<->feet curve-fitting
@@ -1898,7 +1899,7 @@ function render(){
   // block could appear/disappear when zooming (pixel math changes slightly).
   const TOL_FT=0.05;
   const minCurveR=getMinActualCurveRadius(vs,curves,effectivePpm);
-  const pathImpossible=!S.reverse && minCurveR<Infinity && S.vehicle.Rmin>minCurveR+TOL_FT;
+  const pathImpossible=minCurveR<Infinity && S.vehicle.Rmin>minCurveR+TOL_FT;
 
   if(!pathImpossible){
     // ── Kinematic simulation ──────────────────────────────────────
@@ -2066,7 +2067,8 @@ function render(){
     const bannerLbl=new Konva.Label({x:8,y:8,listening:false,opacity:.97});
     bannerLbl.add(new Konva.Tag({fill:'rgba(127,29,29,.93)',cornerRadius:5,stroke:'#ef4444',strokeWidth:1}));
     bannerLbl.add(new Konva.Text({
-      text:`⛔  ${S.vehicle.code} cannot make this turn\n    Needs min R ${needed} ft  ·  Tightest curve is ${drawn} ft`,
+      text:`⛔  ${S.vehicle.code} cannot make this turn${S.reverse?' (backing)':''}\n    Needs min R ${needed} ft  ·  Tightest curve is ${drawn} ft`+
+           (S.reverse?`\n    Steering limits are mechanical — they apply in reverse too`:''),
       fontSize:12,fontStyle:'bold',fill:'#fca5a5',padding:7,lineHeight:1.6
     }));
     mainLayer.add(bannerLbl);
@@ -2305,8 +2307,10 @@ function updateTurnCheck(vs,curves,hasCrossing){
 //   Rigid vehicles  (L2=0): block at >75°
 //   Articulated (L2>0): block at >45° — trailer cannot follow very sharp bends
 // Returns {ok, badIndex, deflectionDeg}
+// Applies in BOTH directions: a sharp corner with no radius is invalid path
+// geometry regardless of travel direction, and the steering linkage's limits
+// are mechanical — they do not change when the truck is put in reverse.
 function checkSharpCorners(){
-  if(S.reverse) return{ok:true,badIndex:-1,deflectionDeg:0}; // no forward restrictions in reverse
   const vs=S.vertices;
   const isArtic=S.vehicle.L2>0;
   const threshold=isArtic?45:75;

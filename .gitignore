@@ -1,0 +1,15 @@
+# Vercel project link (contains project/org IDs - do not share)
+.vercel
+
+# Node
+node_modules/
+npm-debug.log*
+
+# LibreOffice / Office lock files
+.~lock.*#
+~$*
+
+# OS
+Thumbs.db
+desktop.ini
+.DS_Store

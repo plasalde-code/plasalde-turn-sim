@@ -410,7 +410,14 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#111827;color:#e5
               <span class="punit">ft</span>
             </div>
           </div>
-          <div class="phint">Beyond front bumper &amp; trailer tail · cargo width = vehicle width</div>
+          <div class="prow">
+            <span class="plabel">Load width</span>
+            <div class="pval-wrap">
+              <input type="number" class="pinput" id="inp-cargo-width" min="0" step="1" value="0" oninput="onCargoInput()">
+              <span class="punit">ft</span>
+            </div>
+          </div>
+          <div class="phint">Overhang is beyond front bumper &amp; trailer tail · load width 0 = same as vehicle</div>
         </div>
       </div>
 
@@ -1001,7 +1008,7 @@ const S = {
   calActive:false, calP1:null, calP2:null,
   measurePts:[], measureLive:null,
   kmlFeatures:[],  // [{type:'line'|'polygon'|'point', coords:[{lat,lng}], name}]
-  cargo:{on:false, front:0, rear:0},  // oversize load overhang (ft) beyond bumper/tail
+  cargo:{on:false, front:0, rear:0, width:0},  // oversize load (ft): overhang beyond bumper/tail, and load width (0 = use vehicle width)
   _uid:1,
 };
 
@@ -1009,7 +1016,16 @@ const S = {
 // Only affects body/swept geometry — axle kinematics (L1/L2) are unchanged.
 function cargoVeh(veh){
   if(!S.cargo.on) return veh;
-  return {...veh, Fo:(veh.Fo||0)+(S.cargo.front||0), Ro:(veh.Ro||0)+(S.cargo.rear||0)};
+  // Width: an oversize load is wider than the vehicle carrying it, so the swept
+  // envelope must use the LOAD width. 0 means "no wider than the vehicle", and
+  // Math.max keeps a too-small entry from ever shrinking the real body.
+  // Like the existing front/rear overhang this widens the WHOLE envelope rather
+  // than just the deck the load sits on - conservative, which is the safe
+  // direction for clearance work, and consistent with how overhang behaves.
+  return {...veh,
+    Fo:(veh.Fo||0)+(S.cargo.front||0),
+    Ro:(veh.Ro||0)+(S.cargo.rear||0),
+    W :Math.max(veh.W||0, S.cargo.width||0)};
 }
 function onCargoToggle(on){
   S.cargo.on=on;
@@ -1019,6 +1035,7 @@ function onCargoToggle(on){
 function onCargoInput(){
   S.cargo.front=Math.max(0,parseFloat(document.getElementById('inp-cargo-front').value)||0);
   S.cargo.rear =Math.max(0,parseFloat(document.getElementById('inp-cargo-rear').value)||0);
+  S.cargo.width=Math.max(0,parseFloat(document.getElementById('inp-cargo-width').value)||0);
   render();
 }
 

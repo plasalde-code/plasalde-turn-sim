@@ -946,9 +946,31 @@ const VEHICLES = [
   //
   // NOTE: W is the 9 ft VEHICLE width. The permitted load is 16 ft wide; until
   // the Cargo panel gains a width field that overhang cannot be modelled here.
-  { id:'XL140', cat:'Semitrailer', name:'XL 140 HDE Superload (13-axle)', code:'XL-140',
+  { id:'XL140', cat:'Semitrailer', name:'XL 140 HDE Superload (rigid, worst case)', code:'XL-140',
     color:'#a21caf', W:9.0,  L:149.92, Fo:4.0,  Ro:48.98, TW:6.83, Rmin:45.0,
     L1:22.0, L2:74.94, Fwd:0 },
+
+  // Same rig with the rear axle group under ESCORT REMOTE STEERING, which is how
+  // a 13-axle superload is actually driven. ATS (heavy-haul carrier) on the
+  // 13-axle perimeter trailer: "rear-axle steerable ... the rear axles are
+  // powered separately using a remote control steered by an escort following the
+  // trailer", and "this is the only way a vehicle of this size is able to
+  // maneuver and make tight turns".
+  //   https://www.atsinc.com/blog/multi-axle-trailers-heavy-haul-freight
+  //
+  // steer = 0.38 is calibrated, not guessed. Jujnovich (HVTT, Cambridge)
+  // measured steady-state off-tracking in a roundabout test at 4.25 m unsteered
+  // vs 1.60 m with command steering = 38%. Low-speed off-tracking varies as the
+  // square of the wheelbase, so (1-k)^2 = 0.38 gives k = 0.38; the simulator
+  // reproduces 35-38% at that value.
+  //
+  // Geometry is identical to XL-140 above - only the kinematics differ - so the
+  // body, overhangs and overall 149'-11" are unchanged. Run BOTH: this entry for
+  // normal escorted operation, XL-140 for the case where the rear cannot be
+  // steered (operator: "sometimes, not sure").
+  { id:'XL140S',cat:'Semitrailer', name:'XL 140 HDE Superload (escort rear-steer)', code:'XL-140S',
+    color:'#c026d3', W:9.0,  L:149.92, Fo:4.0,  Ro:48.98, TW:6.83, Rmin:45.0,
+    L1:22.0, L2:74.94, Fwd:0, steer:0.38 },
 
   // ── Emergency ─────────────────────────────────────────────────────────────
   { id:'FIRE',  cat:'Emergency',   name:'Fire Engine',                code:'FIRE',
@@ -1131,10 +1153,18 @@ function simulateAxles(pathPts,veh,ppm){
   const n=pathPts.length;
   if(n<2) return [];
   const L1=veh.L1*ppm, L2=(veh.L2||0)*ppm;
+  // COMMAND STEERING of the rear axle group (13-axle superloads: an escort
+  // steers the rear axles by remote). Steered axles cut low-speed off-tracking,
+  // which varies as the square of the wheelbase, so the chain is integrated at a
+  // shortened L2k while the DRAWN axle stays at the true geometric L2 - keeping
+  // body length and tail overhang correct. steer absent => L2k === L2 => the
+  // original pull-chain, bit for bit.
+  const kSteer=veh.steer||0;
+  const L2k=L2*(1-kSteer);
   const dir0=vnorm(vsub(pathPts[Math.min(1,n-1)],pathPts[0]));
 
   let pivot=vsub(pathPts[0],vscl(dir0,L1));
-  let trail=L2>0?vsub(pivot,vscl(dir0,L2)):null;
+  let trail=L2>0?vsub(pivot,vscl(dir0,L2k)):null;
 
   // Max sub-step size: 8% of the shorter wheelbase segment.
   // Keeps the trailer direction vector from flipping >90° in one step,
@@ -1160,15 +1190,26 @@ function simulateAxles(pathPts,veh,ppm){
       // Pull trailer to maintain L2 from pivot
       if(L2>0&&trail){
         const d2=vsub(pivot,trail);
-        if(vlen(d2)>0.001) trail=vsub(pivot,vscl(vnorm(d2),L2));
+        if(vlen(d2)>0.001) trail=vsub(pivot,vscl(vnorm(d2),L2k));
       }
     }
 
     prevFront=front;
+    // Project the chain point back out to the true geometric L2.
+    // With kSteer === 0 the chain point already IS that axle, so emit it
+    // unchanged and the result is bit-identical to the original.
+    let trailOut=null;
+    if(trail){
+      if(!kSteer) trailOut={x:trail.x,y:trail.y};
+      else{
+        const u=vnorm(vsub(pivot,trail));
+        trailOut=(u.x||u.y)?vsub(pivot,vscl(u,L2)):{x:trail.x,y:trail.y};
+      }
+    }
     frames.push({
       frontAxle:{x:front.x,y:front.y},
       pivotAxle:{x:pivot.x,y:pivot.y},
-      trailAxle:trail?{x:trail.x,y:trail.y}:null,
+      trailAxle:trailOut,
     });
   }
   return frames;

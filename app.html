@@ -908,6 +908,48 @@ const VEHICLES = [
     color:'#0891b2', W:10.0, L:73.0,  Fo:4.0,  Ro:3.0,  TW:9.0,  Rmin:50.0,
     L1:16.0, L2:50.0, Fwd:0 },
 
+  // ── XL Specialized 140 HDE superload (13 axles) ───────────────────────────
+  // Sourced from the operator's permit packet + XL Specialized shop drawings.
+  //   Permit sheet  : overall 149'-11" x 16'-0" wide x 25'-3" high
+  //                   (load itself 44'-0" x 16'-0" x 12'-9")
+  //   Axle diagram  : 13 axles - steer 15,000 lb + twelve @ 20,000 lb
+  //   Dwg Q205479   : 140 HDE extends 104'-6" closed -> 125'-9" open
+  //   Dwg 15769 SD  : trailer 101-3/4" wide, axle track 82" = 6.83 ft
+  //   Dwg Y82056    : booster is 9'-0" wide  <- widest body element, so W = 9.0
+  //
+  // Axle stations from the permit diagram, ft behind the steer axle:
+  //   steer 0 | drives 17.5 / 22.0 / 26.5 | jeep 40.6 / 45.6 / 50.6
+  //   | 55'-0" deck gap | trailer 105.6 / 110.6 / 115.6
+  //   | booster 129.7 / 134.7 / 139.7
+  //   Axle 1 -> axle 13 = 139.67 ft. Permit 149.92 - 139.67 = 10.25 ft of total
+  //   overhang; Fo = 4.0 (conventional tractor nose) leaves 6.25 ft of tail.
+  //
+  //   L1 = 22.00  steer axle -> kingpin (centre of the 3-axle drive group)
+  //   L2 = 74.94  kingpin -> CENTROID of the nine trailer axles (40.6 ... 139.7),
+  //               the usual equivalent-wheelbase reduction for multi-axle groups
+  //   Ro = 48.98  centroid -> rear of body
+  //   Fo+L1+L2+Ro = 4.00+22.00+74.94+48.98 = 149.92 ✓  (= 149'-11")
+  //
+  // TWO ASSUMPTIONS - both from the operator, neither from a drawing:
+  //  * Rmin 45.0 is the AASHTO conventional tractor-semitrailer value (same as
+  //    WB-62/65/67). Operator runs a "normal tractor", and the TRACTOR's steer
+  //    angle sets the minimum radius, not the trailer. No trailer manufacturer
+  //    publishes a turning radius - XL's own catalogue lists none for any model.
+  //  * Rear groups modelled as NON-steering. Operator said "sometimes, not
+  //    sure", so the fixed-axle case is used because it is the conservative one
+  //    for off-tracking.
+  //
+  // LIMITATION: this is really a 4-body train (tractor + jeep + trailer +
+  // booster) with 3 articulation points; the simulator models 2 bodies with 1.
+  // The centroid reduction understates off-tracking and overstates rear tail
+  // swing. Indicative only - not a substitute for a route survey.
+  //
+  // NOTE: W is the 9 ft VEHICLE width. The permitted load is 16 ft wide; until
+  // the Cargo panel gains a width field that overhang cannot be modelled here.
+  { id:'XL140', cat:'Semitrailer', name:'XL 140 HDE Superload (13-axle)', code:'XL-140',
+    color:'#a21caf', W:9.0,  L:149.92, Fo:4.0,  Ro:48.98, TW:6.83, Rmin:45.0,
+    L1:22.0, L2:74.94, Fwd:0 },
+
   // ── Emergency ─────────────────────────────────────────────────────────────
   { id:'FIRE',  cat:'Emergency',   name:'Fire Engine',                code:'FIRE',
     color:'#f43f5e', W:8.5,  L:37.0,  Fo:5.0,  Ro:6.0,  TW:7.5,  Rmin:38.0,

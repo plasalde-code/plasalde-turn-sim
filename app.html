@@ -965,11 +965,12 @@ const VEHICLES = [
   // maneuver and make tight turns".
   //   https://www.atsinc.com/blog/multi-axle-trailers-heavy-haul-freight
   //
-  // steer = 0.38 is calibrated, not guessed. Jujnovich (HVTT, Cambridge)
+  // steer = 0.60 is calibrated, not guessed. Jujnovich (HVTT, Cambridge)
   // measured steady-state off-tracking in a roundabout test at 4.25 m unsteered
-  // vs 1.60 m with command steering = 38%. Low-speed off-tracking varies as the
-  // square of the wheelbase, so (1-k)^2 = 0.38 gives k = 0.38; the simulator
-  // reproduces 35-38% at that value.
+  // vs 1.60 m with command steering = 38%. Sweeping k against that target in
+  // this simulator gives 39% at k = 0.60, with maximum trailer-body rotation
+  // through an S-curve at 2.43 deg/step against 2.89 rigid - i.e. the steering
+  // damps the body, which is the physically correct direction.
   //
   // Geometry is identical to XL-140 above - only the kinematics differ - so the
   // body, overhangs and overall 149'-11" are unchanged. Run BOTH: this entry for
@@ -977,7 +978,7 @@ const VEHICLES = [
   // steered (operator: "sometimes, not sure").
   { id:'XL140S',cat:'Semitrailer', name:'XL 140 HDE Superload (escort rear-steer)', code:'XL-140S',
     color:'#c026d3', W:9.0,  L:149.92, Fo:4.0,  Ro:48.98, TW:6.83, Rmin:45.0,
-    L1:22.0, L2:74.94, Fwd:0, steer:0.38 },
+    L1:22.0, L2:74.94, Fwd:0, steer:0.60 },
 
   // ── Emergency ─────────────────────────────────────────────────────────────
   // Ro corrected 6.0 -> 14.0 so the drawn body matches the stated length.
@@ -1179,17 +1180,20 @@ function simulateAxles(pathPts,veh,ppm){
   if(n<2) return [];
   const L1=veh.L1*ppm, L2=(veh.L2||0)*ppm;
   // COMMAND STEERING of the rear axle group (13-axle superloads: an escort
-  // steers the rear axles by remote). Steered axles cut low-speed off-tracking,
-  // which varies as the square of the wheelbase, so the chain is integrated at a
-  // shortened L2k while the DRAWN axle stays at the true geometric L2 - keeping
-  // body length and tail overhang correct. steer absent => L2k === L2 => the
-  // original pull-chain, bit for bit.
+  // steers the rear axles by remote). The rear axle is steered by beta in
+  // proportion to the articulation angle, which changes how fast the trailer
+  // heading turns WITHOUT shortening the lever arm. Integrating the heading
+  // explicitly keeps the axle at the true geometric L2:
+  //     phi' = (ds / L2) * sin(theta - beta) / cos(beta),   beta = -k * theta
+  // An earlier attempt ran the chain at a shortened L2k and projected the axle
+  // back out to L2. It matched steady-state off-tracking but rotated the body at
+  // a short-trailer rate on a long lever, so the tail whipped through S-curves
+  // (14.9 deg/step against 9.0 rigid). Do not reintroduce that.
   const kSteer=veh.steer||0;
-  const L2k=L2*(1-kSteer);
   const dir0=vnorm(vsub(pathPts[Math.min(1,n-1)],pathPts[0]));
 
   let pivot=vsub(pathPts[0],vscl(dir0,L1));
-  let trail=L2>0?vsub(pivot,vscl(dir0,L2k)):null;
+  let trail=L2>0?vsub(pivot,vscl(dir0,L2)):null;
 
   // Max sub-step size: 8% of the shorter wheelbase segment.
   // Keeps the trailer direction vector from flipping >90° in one step,
@@ -1210,31 +1214,43 @@ function simulateAxles(pathPts,veh,ppm){
       const t=s/steps;
       const fi={x:prevFront.x+(front.x-prevFront.x)*t, y:prevFront.y+(front.y-prevFront.y)*t};
       // Pull pivot to maintain L1 from front
+      const pivotPrev=pivot;
       const d1=vsub(fi,pivot);
       if(vlen(d1)>0.001) pivot=vsub(fi,vscl(vnorm(d1),L1));
       // Pull trailer to maintain L2 from pivot
       if(L2>0&&trail){
-        const d2=vsub(pivot,trail);
-        if(vlen(d2)>0.001) trail=vsub(pivot,vscl(vnorm(d2),L2k));
+        if(!kSteer){
+          // Unsteered: the original pull-chain, untouched.
+          const d2=vsub(pivot,trail);
+          if(vlen(d2)>0.001) trail=vsub(pivot,vscl(vnorm(d2),L2));
+        } else {
+          const ds=vlen(vsub(pivot,pivotPrev));
+          if(ds>1e-9){
+            const psi=Math.atan2(pivot.y-pivotPrev.y, pivot.x-pivotPrev.x);
+            // phi MUST be taken from pivotPrev. Using the already-moved pivot
+            // with the old trail bakes in one rotation step, and adding the
+            // integration on top of that doubles the turn rate.
+            let phi=Math.atan2(pivotPrev.y-trail.y, pivotPrev.x-trail.x);
+            let th=psi-phi;
+            while(th> Math.PI) th-=2*Math.PI;
+            while(th<-Math.PI) th+=2*Math.PI;
+            // Real steered bogies have a mechanical limit; clamping beta also
+            // bounds the 1/cos(beta) term, which otherwise runs away and makes
+            // the integration explode above about k = 0.45.
+            const BETA_MAX=25*Math.PI/180;
+            const beta=Math.max(-BETA_MAX,Math.min(BETA_MAX,-kSteer*th));
+            phi+=(ds/L2)*Math.sin(th-beta)/Math.cos(beta);
+            trail=vsub(pivot,vscl({x:Math.cos(phi),y:Math.sin(phi)},L2));
+          }
+        }
       }
     }
 
     prevFront=front;
-    // Project the chain point back out to the true geometric L2.
-    // With kSteer === 0 the chain point already IS that axle, so emit it
-    // unchanged and the result is bit-identical to the original.
-    let trailOut=null;
-    if(trail){
-      if(!kSteer) trailOut={x:trail.x,y:trail.y};
-      else{
-        const u=vnorm(vsub(pivot,trail));
-        trailOut=(u.x||u.y)?vsub(pivot,vscl(u,L2)):{x:trail.x,y:trail.y};
-      }
-    }
     frames.push({
       frontAxle:{x:front.x,y:front.y},
       pivotAxle:{x:pivot.x,y:pivot.y},
-      trailAxle:trailOut,
+      trailAxle:trail?{x:trail.x,y:trail.y}:null,
     });
   }
   return frames;

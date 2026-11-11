@@ -980,8 +980,16 @@ const VEHICLES = [
     L1:22.0, L2:74.94, Fwd:0, steer:0.38 },
 
   // ── Emergency ─────────────────────────────────────────────────────────────
+  // Ro corrected 6.0 -> 14.0 so the drawn body matches the stated length.
+  // It previously drew a 29 ft vehicle (Fo+L1+Ro = 5+18+6) while reporting
+  // L = 37, an 8 ft discrepancy - the only vehicle in this table that did not
+  // close. Ro is the value that was wrong, not L: fire apparatus carry a long
+  // hose bed behind the rear axle, and the other figures corroborate a real
+  // pumper (L1 18.0 vs a 205 in = 17.1 ft wheelbase; Rmin 38 vs 36 ft
+  // wall-to-wall). NOTE: AASHTO has no fire-truck design vehicle - the Green
+  // Book's nearest is the SU truck - so these are apparatus figures, not AASHTO.
   { id:'FIRE',  cat:'Emergency',   name:'Fire Engine',                code:'FIRE',
-    color:'#f43f5e', W:8.5,  L:37.0,  Fo:5.0,  Ro:6.0,  TW:7.5,  Rmin:38.0,
+    color:'#f43f5e', W:8.5,  L:37.0,  Fo:5.0,  Ro:14.0, TW:7.5,  Rmin:38.0,
     L1:18.0, L2:0,    Fwd:0 },
 ];
 

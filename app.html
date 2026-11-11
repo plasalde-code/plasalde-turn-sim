@@ -903,11 +903,51 @@ const VEHICLES = [
     color:'#7f1d1d', W:8.5,  L:109.0, Fo:4.0,  Ro:4.0,  TW:8.0,  Rmin:50.0,
     L1:23.0, L2:78.0, Fwd:0 },
 
-  // 80ft Long Trailer: tractor(WB=22)+80ft trailer body. Fwd=6 under tractor. L2=71, Ro=3.
-  // Stated L≈97ft. Fwd = Fo+L1+L2+Ro−L = 4+22+71+3−97 = 3 (back-calc).
+  // Long Trailer-80' - taken from the operator's own CadTools definition
+  // ("Long Trailer-80'", type Semi-Trailer, AASHTO Semi Trailer, units feet),
+  // replacing figures that were previously estimated here.
+  //   CadTools : F=4  WB=19.5  H=1.3  WB2=73.33  B2=6.75   total 104.88 ft
+  //              wheel widths 8 / 8.5 ; vehicle widths 9 / 9.5
+  //              max wheel turning angle 28 deg, max angle between segments 68
+  //   Mapping  : Fo=F,  L1=WB+H (steer axle -> kingpin),  L2=WB2,  Ro=B2
+  //   Fo+L1+L2+Ro = 4.00+20.80+73.33+6.75 = 104.88 ✓ matches the stated total
+  //   Trailer body = L2+Ro = 73.33+6.75 = 80.08 ft ✓ - i.e. the actual 80 ft.
+  //
+  // The earlier entry here was wrong: it gave a 71 ft body and a 97 ft overall,
+  // so it simulated a shorter truck than the one being analysed.
+  //
+  // Rmin LEFT AT 55. CadTools reports MIN TURNING RADIUS (CENTERLINE); for the
+  // near-identical "long trailer" it reports 41.54, which converts to about
+  // 46 ft in this table's outside-wheel convention (Iowa DOT: turning radius
+  // ~= centerline radius + half the vehicle width; CadTools WB-62 centerline
+  // 41.00 against this table's 45 confirms the offset). 55 is what the operator
+  // stated for this vehicle, and it is the more conservative of the two, so it
+  // stands until they confirm which they want.
   { id:'LT80',  cat:'Semitrailer', name:'Long Trailer (80ft body)',   code:'LT-80',
-    color:'#b45309', W:8.5,  L:97.0,  Fo:4.0,  Ro:3.0,  TW:8.0,  Rmin:55.0,
-    L1:22.0, L2:68.0, Fwd:0 },
+    color:'#b45309', W:9.5,  L:104.88, Fo:4.0,  Ro:6.75, TW:8.5,  Rmin:55.0,
+    L1:20.8, L2:73.33, Fwd:0 },
+
+  // "long trailer" from the same CadTools set (AASHTO Semitrailer).
+  //   CadTools : F=4  WB=19.5  H=1.3  WB2=69.33  B2=6.75   total 100.88 ft
+  //              min turning radius (CENTERLINE) 41.54 ft
+  //   Fo+L1+L2+Ro = 4.00+20.80+69.33+6.75 = 100.88 ✓
+  //   Trailer body = 69.33+6.75 = 76.08 ft
+  //   Rmin 46.3 = centerline 41.54 + half the 9.5 ft width, the conversion to
+  //   this table's outside-wheel convention (Iowa DOT). Cross-checked on WB-62,
+  //   where CadTools centerline 41.00 lines up with this table's 45.
+  { id:'LT76',  cat:'Semitrailer', name:'Long Trailer (76ft body)',   code:'LT-76',
+    color:'#d97706', W:9.5,  L:100.88, Fo:4.0,  Ro:6.75, TW:8.5,  Rmin:46.3,
+    L1:20.8, L2:69.33, Fwd:0 },
+
+  // "Medium Trailer 75 ft" from the same CadTools set (AASHTO Semitrailer).
+  //   CadTools : F=4  WB=19.5  H=2.1  WB2=41.5  B2=6.5   total 73.6 ft
+  //              min turning radius (CENTERLINE) 41.54 ft
+  //   Fo+L1+L2+Ro = 4.00+21.60+41.50+6.50 = 73.60 ✓
+  //   Trailer body = 41.5+6.5 = 48.0 ft
+  //   Rmin 46.0 = centerline 41.54 + half the 9.0 ft width.
+  { id:'MED75', cat:'Semitrailer', name:'Medium Trailer (75ft)',      code:'MED-75',
+    color:'#ea580c', W:9.0,  L:73.6,  Fo:4.0,  Ro:6.5,  TW:8.5,  Rmin:46.0,
+    L1:21.6, L2:41.5, Fwd:0 },
 
   // Low Boy: wide drop-deck for heavy equipment hauling. Rmin=50ft.
   // L2=50, Fo+L1+L2+Ro=4+16+50+3=73 ✓

@@ -1640,47 +1640,85 @@ function checkDragCrossing(v,savedX,savedY){}
 // ══════════════════════════════════════════════════════════════════
 // 10. VEHICLE BODY OUTLINE (for display at key positions)
 // ══════════════════════════════════════════════════════════════════
-// Axle stations for a plan view of the wheels.
-//  axlesT : ft BEHIND the steer axle, measured along the tractor axis
-//  axlesR : ft BEHIND the kingpin,    measured along the trailer axis
-// A vehicle that declares neither falls back to the axles the kinematic model
-// actually tracks (steer + drive at the pivot, and the single trailer axle), so
-// nothing is drawn that the simulation does not know about.
-function vehicleAxles(veh){
-  return {
-    tractor: (veh.axlesT && veh.axlesT.length) ? veh.axlesT : [0, veh.L1],
-    trailer: (veh.L2>0) ? ((veh.axlesR && veh.axlesR.length) ? veh.axlesR : [veh.L2]) : []
-  };
+// ── Wheel plan view ────────────────────────────────────────────────────────
+// Draws the real axle layout: a single steer axle, then tandem/tridem groups
+// with dual tyres, as on the AASHTO design-vehicle drawings.
+//
+// IMPORTANT: group CENTRES stay exactly where the kinematics put them - the
+// steer axle, the pivot (L1) and the trailer axle (L2). This adds drawing
+// detail only; it changes no simulated position.
+//
+// A vehicle may declare either:
+//   axlesT / axlesR - explicit stations (ft behind the steer axle / kingpin),
+//                     used where the real axle diagram is known
+//   wheels          - {steer,drive,trail} groups of {n, dual, sp}
+// With neither, the defaults below apply: single steer, and tandem duals on the
+// drive and trailer groups for articulated vehicles, which is the configuration
+// shown on the AASHTO WB-series drawings. Tandem spacing defaults to 4.5 ft,
+// the value measured on the operator's own permit axle diagram (drives at
+// 17.5 / 22.0 / 26.5) and on the XL trailer drawings (54 in centres).
+function vehicleWheelPlan(veh){
+  const art = (veh.L2||0) > 0;
+  const w = veh.wheels || {};
+  const steer = w.steer || {n:1, dual:false};
+  // Articulated rigs run a tandem drive; a rigid single unit, bus or fire
+  // appliance runs one rear axle. Both carry duals. A vehicle that actually has
+  // a tandem rear (e.g. a longer single unit) can say so via wheels.drive.
+  const drive = w.drive || (art ? {n:2, dual:true, sp:4.5} : {n:1, dual:true});
+  const trail = w.trail || {n:2, dual:true, sp:4.5};
+
+  function group(centre, g){
+    const n=g.n||1, sp=g.sp||4.5, out=[];
+    for(let k=0;k<n;k++) out.push({s:centre + (k-(n-1)/2)*sp, dual:!!g.dual});
+    return out;
+  }
+
+  // Explicit station lists win where a real axle diagram is known.
+  if(veh.axlesT && veh.axlesT.length){
+    const T=veh.axlesT.map(s=>({s, dual:s>0.01}));          // station 0 = steer, single
+    const R=(veh.axlesR||[]).map(t=>({s:t, dual:true}));
+    return {tractor:T, trailer:R};
+  }
+
+  const T=[...group(0,steer), ...group(veh.L1,drive)];
+  const R=art ? group(veh.L2,trail) : [];
+  return {tractor:T, trailer:R};
 }
 
-// Draw each wheel as a tyre-shaped rectangle at the real TRACK width (TW),
-// not at the body edge. Tyre footprint is 3.5 ft rolling diameter x 1.4 ft,
-// which reads as a dual at normal zoom without claiming a specific tyre.
+// Each wheel position is one tyre (single) or two side by side (dual).
+// Tyre footprint 3.5 ft rolling diameter x 1.0 ft; duals sit +/-0.6 ft about
+// the nominal track line, so the pair straddles the track as on a real axle.
 function renderWheels(frame,veh,ppm,layer,col){
   const halfTrack=((veh.TW||veh.W)/2)*ppm;
-  const TL=3.5*ppm, TW_=1.4*ppm;
-  const ax=vehicleAxles(veh);
+  const TL=3.5*ppm, TWID=1.0*ppm, DUAL=0.6*ppm;
+  const plan=vehicleWheelPlan(veh);
 
   function tyre(c,d){
-    const rot=Math.atan2(d.y,d.x)*180/Math.PI;
     layer.add(new Konva.Rect({
-      x:c.x, y:c.y, width:TL, height:TW_,
-      offsetX:TL/2, offsetY:TW_/2, rotation:rot,
+      x:c.x, y:c.y, width:TL, height:TWID,
+      offsetX:TL/2, offsetY:TWID/2,
+      rotation:Math.atan2(d.y,d.x)*180/Math.PI,
       fill:'#0f172a', stroke:col, strokeWidth:1, listening:false
     }));
   }
-  function pair(centre,d){
+  function assembly(centre,d,lat,dual){
     const l=vleft(d);
-    tyre(vadd(centre,vscl(l, halfTrack)),d);
-    tyre(vadd(centre,vscl(l,-halfTrack)),d);
+    const base=vadd(centre,vscl(l,lat));
+    if(!dual){ tyre(base,d); return; }
+    tyre(vadd(base,vscl(l, DUAL)),d);
+    tyre(vadd(base,vscl(l,-DUAL)),d);
+  }
+  function axle(centre,d,dual){
+    assembly(centre,d, halfTrack,dual);
+    assembly(centre,d,-halfTrack,dual);
   }
 
   const dir=vnorm(vsub(frame.frontAxle,frame.pivotAxle));
-  for(const sft of ax.tractor) pair(vsub(frame.frontAxle,vscl(dir,sft*ppm)),dir);
+  for(const a of plan.tractor) axle(vsub(frame.frontAxle,vscl(dir,a.s*ppm)),dir,a.dual);
 
-  if(frame.trailAxle && ax.trailer.length){
+  if(frame.trailAxle && plan.trailer.length){
     const d2=vnorm(vsub(frame.pivotAxle,frame.trailAxle));
-    for(const tft of ax.trailer) pair(vsub(frame.pivotAxle,vscl(d2,tft*ppm)),d2);
+    for(const a of plan.trailer) axle(vsub(frame.pivotAxle,vscl(d2,a.s*ppm)),d2,a.dual);
   }
 }
 

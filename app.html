@@ -931,11 +931,19 @@ const VEHICLES = [
   //   Axle 1 -> axle 13 = 139.67 ft. Permit 149.92 - 139.67 = 10.25 ft of total
   //   overhang; Fo = 4.0 (conventional tractor nose) leaves 6.25 ft of tail.
   //
-  //   L1 = 22.00  steer axle -> kingpin (centre of the 3-axle drive group)
-  //   L2 = 74.94  kingpin -> CENTROID of the nine trailer axles (40.6 ... 139.7),
-  //               the usual equivalent-wheelbase reduction for multi-axle groups
-  //   Ro = 48.98  centroid -> rear of body
-  //   Fo+L1+L2+Ro = 4.00+22.00+74.94+48.98 = 149.92 ✓  (= 149'-11")
+  //   L1 = 22.00   steer axle -> kingpin (centre of the 3-axle drive group)
+  //   L2 = 112.67  kingpin -> centre of the REAR axle group (the booster, axles
+  //                11-13 at 129.7/134.7/139.7)
+  //   Ro = 11.25   that group -> rear of body
+  //   Fo+L1+L2+Ro = 4.00+22.00+112.67+11.25 = 149.92 ✓  (= 149'-11")
+  //
+  // L2 was originally the CENTROID of all nine trailer axles (74.94), the usual
+  // equivalent-wheelbase reduction. That left 48.98 ft of body hanging behind
+  // the single modelled axle when the real rig has booster axles under it, and
+  // the resulting phantom tail swing showed up as a lobe in the swept area on
+  // tight reverse curves. Putting the axle on the real rear group makes the
+  // overhang the real 11.25 ft and the lobe disappears; off-tracking is then
+  // set by the steering gain instead of by fudging the wheelbase.
   //
   // TWO ASSUMPTIONS - both from the operator, neither from a drawing:
   //  * Rmin 45.0 is the AASHTO conventional tractor-semitrailer value (same as
@@ -954,8 +962,8 @@ const VEHICLES = [
   // NOTE: W is the 9 ft VEHICLE width. The permitted load is 16 ft wide; until
   // the Cargo panel gains a width field that overhang cannot be modelled here.
   { id:'XL140', cat:'Semitrailer', name:'XL 140 HDE Superload (rigid, worst case)', code:'XL-140',
-    color:'#a21caf', W:9.0,  L:149.92, Fo:4.0,  Ro:48.98, TW:6.83, Rmin:45.0,
-    L1:22.0, L2:74.94, Fwd:0 },
+    color:'#a21caf', W:9.0,  L:149.92, Fo:4.0,  Ro:11.25, TW:6.83, Rmin:45.0,
+    L1:22.0, L2:112.667, Fwd:0 },
 
   // Same rig with the rear axle group under ESCORT REMOTE STEERING, which is how
   // a 13-axle superload is actually driven. ATS (heavy-haul carrier) on the
@@ -965,20 +973,20 @@ const VEHICLES = [
   // maneuver and make tight turns".
   //   https://www.atsinc.com/blog/multi-axle-trailers-heavy-haul-freight
   //
-  // steer = 0.60 is calibrated, not guessed. Jujnovich (HVTT, Cambridge)
+  // steer = 0.52 is calibrated, not guessed. Jujnovich (HVTT, Cambridge)
   // measured steady-state off-tracking in a roundabout test at 4.25 m unsteered
-  // vs 1.60 m with command steering = 38%. Sweeping k against that target in
-  // this simulator gives 39% at k = 0.60, with maximum trailer-body rotation
-  // through an S-curve at 2.43 deg/step against 2.89 rigid - i.e. the steering
-  // damps the body, which is the physically correct direction.
+  // vs 1.60 m with command steering = 38%. With the corrected geometry the
+  // rigid baseline is 29.1 ft on a 100 ft arc, and k = 0.52 gives 11.2 ft -
+  // 38% of it. (It was 0.60 while L2 was the axle centroid; the gain is tied to
+  // the wheelbase, so it had to be re-derived when the geometry was fixed.)
   //
   // Geometry is identical to XL-140 above - only the kinematics differ - so the
   // body, overhangs and overall 149'-11" are unchanged. Run BOTH: this entry for
   // normal escorted operation, XL-140 for the case where the rear cannot be
   // steered (operator: "sometimes, not sure").
   { id:'XL140S',cat:'Semitrailer', name:'XL 140 HDE Superload (escort rear-steer)', code:'XL-140S',
-    color:'#c026d3', W:9.0,  L:149.92, Fo:4.0,  Ro:48.98, TW:6.83, Rmin:45.0,
-    L1:22.0, L2:74.94, Fwd:0, steer:0.60 },
+    color:'#c026d3', W:9.0,  L:149.92, Fo:4.0,  Ro:11.25, TW:6.83, Rmin:45.0,
+    L1:22.0, L2:112.667, Fwd:0, steer:0.52 },
 
   // ── Emergency ─────────────────────────────────────────────────────────────
   // Ro corrected 6.0 -> 14.0 so the drawn body matches the stated length.

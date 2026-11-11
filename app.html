@@ -386,6 +386,7 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#111827;color:#e5
         <div class="opt-row"><span>Swept area fill</span><input type="checkbox" class="chk" id="opt-fill" checked onchange="render()"></div>
         <div class="opt-row"><span>Wheel tracks</span><input type="checkbox" class="chk" id="opt-tracks" checked onchange="render()"></div>
         <div class="opt-row"><span>Vehicle outlines</span><input type="checkbox" class="chk" id="opt-body" checked onchange="render()"></div>
+        <div class="opt-row"><span>Wheels (plan view)</span><input type="checkbox" class="chk" id="opt-wheels" onchange="render()"></div>
         <div class="opt-row"><span>Radius circles</span><input type="checkbox" class="chk" id="opt-radii" checked onchange="render()"></div>
       </div>
 
@@ -1003,7 +1004,12 @@ const VEHICLES = [
   // the Cargo panel gains a width field that overhang cannot be modelled here.
   { id:'XL140', cat:'Semitrailer', name:'XL 140 HDE Superload (rigid, worst case)', code:'XL-140',
     color:'#a21caf', W:9.0,  L:149.92, Fo:4.0,  Ro:11.25, TW:6.83, Rmin:45.0,
-    L1:22.0, L2:112.667, Fwd:0 },
+    L1:22.0, L2:112.667, Fwd:0,
+    // All 13 axle stations from the permit diagram, for the plan view.
+    // axlesT = ft behind the steer axle; axlesR = ft behind the kingpin (22.0).
+    // axlesR includes 112.67, which is the axle the kinematic model tracks.
+    axlesT:[0,17.5,22,26.5],
+    axlesR:[18.58,23.58,28.58,83.58,88.58,93.58,107.67,112.67,117.67] },
 
   // Same rig with the rear axle group under ESCORT REMOTE STEERING, which is how
   // a 13-axle superload is actually driven. ATS (heavy-haul carrier) on the
@@ -1026,7 +1032,12 @@ const VEHICLES = [
   // steered (operator: "sometimes, not sure").
   { id:'XL140S',cat:'Semitrailer', name:'XL 140 HDE Superload (escort rear-steer)', code:'XL-140S',
     color:'#c026d3', W:9.0,  L:149.92, Fo:4.0,  Ro:11.25, TW:6.83, Rmin:45.0,
-    L1:22.0, L2:112.667, Fwd:0, steer:0.52 },
+    L1:22.0, L2:112.667, Fwd:0, steer:0.52,
+    // All 13 axle stations from the permit diagram, for the plan view.
+    // axlesT = ft behind the steer axle; axlesR = ft behind the kingpin (22.0).
+    // axlesR includes 112.67, which is the axle the kinematic model tracks.
+    axlesT:[0,17.5,22,26.5],
+    axlesR:[18.58,23.58,28.58,83.58,88.58,93.58,107.67,112.67,117.67] },
 
   // ── Emergency ─────────────────────────────────────────────────────────────
   // Ro corrected 6.0 -> 14.0 so the drawn body matches the stated length.
@@ -1629,6 +1640,50 @@ function checkDragCrossing(v,savedX,savedY){}
 // ══════════════════════════════════════════════════════════════════
 // 10. VEHICLE BODY OUTLINE (for display at key positions)
 // ══════════════════════════════════════════════════════════════════
+// Axle stations for a plan view of the wheels.
+//  axlesT : ft BEHIND the steer axle, measured along the tractor axis
+//  axlesR : ft BEHIND the kingpin,    measured along the trailer axis
+// A vehicle that declares neither falls back to the axles the kinematic model
+// actually tracks (steer + drive at the pivot, and the single trailer axle), so
+// nothing is drawn that the simulation does not know about.
+function vehicleAxles(veh){
+  return {
+    tractor: (veh.axlesT && veh.axlesT.length) ? veh.axlesT : [0, veh.L1],
+    trailer: (veh.L2>0) ? ((veh.axlesR && veh.axlesR.length) ? veh.axlesR : [veh.L2]) : []
+  };
+}
+
+// Draw each wheel as a tyre-shaped rectangle at the real TRACK width (TW),
+// not at the body edge. Tyre footprint is 3.5 ft rolling diameter x 1.4 ft,
+// which reads as a dual at normal zoom without claiming a specific tyre.
+function renderWheels(frame,veh,ppm,layer,col){
+  const halfTrack=((veh.TW||veh.W)/2)*ppm;
+  const TL=3.5*ppm, TW_=1.4*ppm;
+  const ax=vehicleAxles(veh);
+
+  function tyre(c,d){
+    const rot=Math.atan2(d.y,d.x)*180/Math.PI;
+    layer.add(new Konva.Rect({
+      x:c.x, y:c.y, width:TL, height:TW_,
+      offsetX:TL/2, offsetY:TW_/2, rotation:rot,
+      fill:'#0f172a', stroke:col, strokeWidth:1, listening:false
+    }));
+  }
+  function pair(centre,d){
+    const l=vleft(d);
+    tyre(vadd(centre,vscl(l, halfTrack)),d);
+    tyre(vadd(centre,vscl(l,-halfTrack)),d);
+  }
+
+  const dir=vnorm(vsub(frame.frontAxle,frame.pivotAxle));
+  for(const sft of ax.tractor) pair(vsub(frame.frontAxle,vscl(dir,sft*ppm)),dir);
+
+  if(frame.trailAxle && ax.trailer.length){
+    const d2=vnorm(vsub(frame.pivotAxle,frame.trailAxle));
+    for(const tft of ax.trailer) pair(vsub(frame.pivotAxle,vscl(d2,tft*ppm)),d2);
+  }
+}
+
 function renderBodyOutline(frame,veh,ppm,layer){
   const HW=(veh.W/2)*ppm, Fo=veh.Fo*ppm, Ro=veh.Ro*ppm;
   const Fwd=(veh.Fwd||0)*ppm;
@@ -1928,6 +1983,7 @@ function render(){
   const showFill  =document.getElementById('opt-fill').checked;
   const showTracks=document.getElementById('opt-tracks').checked;
   const showBody  =document.getElementById('opt-body').checked;
+  const showWheels=document.getElementById('opt-wheels').checked;
   const showRadii =document.getElementById('opt-radii').checked;
 
   // ── Reverse path: flip point order + tangent direction ────────
@@ -2188,6 +2244,12 @@ function render(){
     if(showBody){
       const dispFrames=getBodyDisplayFrames(simPath,frames);
       dispFrames.forEach(f=>renderBodyOutline(f,gveh,effectivePpm,mainLayer));
+    }
+
+    // 3b. Wheels in plan view, at the real track width
+    if(showWheels){
+      getBodyDisplayFrames(simPath,frames)
+        .forEach(f=>renderWheels(f,gveh,effectivePpm,mainLayer,drawCol));
     }
 
     // Min-radius warning

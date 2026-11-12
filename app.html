@@ -386,7 +386,6 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#111827;color:#e5
         <div class="opt-row"><span>Swept area fill</span><input type="checkbox" class="chk" id="opt-fill" checked onchange="render()"></div>
         <div class="opt-row"><span>Wheel tracks</span><input type="checkbox" class="chk" id="opt-tracks" checked onchange="render()"></div>
         <div class="opt-row"><span>Vehicle outlines</span><input type="checkbox" class="chk" id="opt-body" checked onchange="render()"></div>
-        <div class="opt-row"><span>Wheels (plan view)</span><input type="checkbox" class="chk" id="opt-wheels" onchange="render()"></div>
         <div class="opt-row"><span>Radius circles</span><input type="checkbox" class="chk" id="opt-radii" checked onchange="render()"></div>
       </div>
 
@@ -1688,7 +1687,7 @@ function vehicleWheelPlan(veh){
 // Each wheel position is one tyre (single) or two side by side (dual).
 // Tyre footprint 3.5 ft rolling diameter x 1.0 ft; duals sit +/-0.6 ft about
 // the nominal track line, so the pair straddles the track as on a real axle.
-function renderWheels(frame,veh,ppm,layer,col){
+function renderWheels(frame,veh,ppm,layer,col,steerDir){
   const halfTrack=((veh.TW||veh.W)/2)*ppm;
   const TL=3.5*ppm, TWID=1.0*ppm, DUAL=0.6*ppm;
   const plan=vehicleWheelPlan(veh);
@@ -1714,7 +1713,12 @@ function renderWheels(frame,veh,ppm,layer,col){
   }
 
   const dir=vnorm(vsub(frame.frontAxle,frame.pivotAxle));
-  for(const a of plan.tractor) axle(vsub(frame.frontAxle,vscl(dir,a.s*ppm)),dir,a.dual);
+  for(const a of plan.tractor){
+    // Station 0 is the steer axle: its wheels point where the axle is actually
+    // going, not along the cab. Everything behind it is fixed to the chassis.
+    const d=(a.s<0.01 && steerDir && (steerDir.x||steerDir.y)) ? steerDir : dir;
+    axle(vsub(frame.frontAxle,vscl(dir,a.s*ppm)),d,a.dual);
+  }
 
   if(frame.trailAxle && plan.trailer.length){
     const d2=vnorm(vsub(frame.pivotAxle,frame.trailAxle));
@@ -1733,7 +1737,6 @@ function renderBodyOutline(frame,veh,ppm,layer){
     const l=vleft(d);
     layer.add(new Konva.Line({points:flat([vadd(pt,vscl(l,HW)),vadd(pt,vscl(l,-HW))]),stroke:col,strokeWidth:1.2,listening:false}));
   }
-  function wheelDot(pt){ layer.add(new Konva.Circle({x:pt.x,y:pt.y,radius:2.5,fill:col,listening:false})); }
   function box(pts,fillAlpha){
     layer.add(new Konva.Line({points:flat(pts),closed:true,stroke:col,strokeWidth:1.5,fill:col+fillAlpha,dash:[3,2],listening:false}));
   }
@@ -1745,9 +1748,6 @@ function renderBodyOutline(frame,veh,ppm,layer){
     box([vadd(fb,vscl(lft,HW)),vadd(fb,vscl(lft,-HW)),vadd(rb,vscl(lft,-HW)),vadd(rb,vscl(lft,HW))],'20');
     axleLine(frame.frontAxle,dir);
     axleLine(frame.pivotAxle,dir);
-    // Wheel dots at axle ends
-    [vadd(frame.frontAxle,vscl(lft,HW)),vadd(frame.frontAxle,vscl(lft,-HW)),
-     vadd(frame.pivotAxle,vscl(lft,HW)),vadd(frame.pivotAxle,vscl(lft,-HW))].forEach(wheelDot);
   } else {
     // Tractor cab
     const tractorRear=frame.pivotAxle;
@@ -1766,11 +1766,6 @@ function renderBodyOutline(frame,veh,ppm,layer){
     axleLine(frame.frontAxle,dir);
     axleLine(frame.pivotAxle,dir);
     axleLine(frame.trailAxle,d2);
-
-    // Wheel dots
-    [vadd(frame.frontAxle,vscl(lft,HW)),vadd(frame.frontAxle,vscl(lft,-HW)),
-     vadd(frame.pivotAxle,vscl(lft,HW)),vadd(frame.pivotAxle,vscl(lft,-HW)),
-     vadd(frame.trailAxle,vscl(l2,HW)),vadd(frame.trailAxle,vscl(l2,-HW))].forEach(wheelDot);
 
     // 5th-wheel marker
     layer.add(new Konva.Circle({x:frame.pivotAxle.x,y:frame.pivotAxle.y,radius:4,stroke:col,strokeWidth:1.5,fill:'transparent',listening:false}));
@@ -2021,7 +2016,6 @@ function render(){
   const showFill  =document.getElementById('opt-fill').checked;
   const showTracks=document.getElementById('opt-tracks').checked;
   const showBody  =document.getElementById('opt-body').checked;
-  const showWheels=document.getElementById('opt-wheels').checked;
   const showRadii =document.getElementById('opt-radii').checked;
 
   // ── Reverse path: flip point order + tangent direction ────────
@@ -2284,11 +2278,15 @@ function render(){
       dispFrames.forEach(f=>renderBodyOutline(f,gveh,effectivePpm,mainLayer));
     }
 
-    // 3b. Wheels in plan view, at the real track width
-    if(showWheels){
-      getBodyDisplayFrames(simPath,frames)
-        .forEach(f=>renderWheels(f,gveh,effectivePpm,mainLayer,drawCol));
-    }
+    // 3b. Wheels in plan view. Always drawn - this IS the axle/wheel location
+    // check, not an optional overlay. The steer axle is handed the direction the
+    // front axle is actually travelling (the path tangent) so the front wheels
+    // turn into the curve instead of sitting parallel to the cab.
+    getBodyDisplayFrames(simPath,frames).forEach(f=>{
+      const i=frames.indexOf(f);
+      const steerDir=(i>0) ? vnorm(vsub(f.frontAxle,frames[i-1].frontAxle)) : null;
+      renderWheels(f,gveh,effectivePpm,mainLayer,drawCol,steerDir);
+    });
 
     // Min-radius warning
     document.getElementById('min-warn').style.display='none';
